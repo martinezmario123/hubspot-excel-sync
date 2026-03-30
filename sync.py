@@ -1,82 +1,64 @@
 import pandas as pd
 import requests
 import os
-import json
 
-# Configuración de acceso
 token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-headers = {
-    'Authorization': f'Bearer {token}', 
-    'Content-Type': 'application/json'
-}
+headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-def procesar_y_enviar():
-    # 1. Diagnóstico de conexión
-    try:
-        info_test = requests.get("https://api.hubapi.com/account-info/v1/details", headers=headers).json()
-        print(f"--- INFO DE CONEXIÓN ---")
-        print(f"PORTAL ID CONECTADO: {info_test.get('portalId')}")
-        print(f"-------------------------")
-    except Exception as e:
-        print(f"Error de conexión: {e}")
-        return
-
-    # 2. Carga de archivo
+def sincronizar_todo():
     file_path = 'datos.xlsx'
     if not os.path.exists(file_path): 
-        print(f"❌ Error: El archivo {file_path} no existe en el repositorio.")
+        print("❌ Archivo datos.xlsx no encontrado.")
         return
-
+    
     df = pd.read_excel(file_path)
-    if 'CIF' not in df.columns:
-        print("❌ Error: No se encontró la columna 'CIF' en el Excel.")
-        return
-
-    # 3. Lógica de lectura
-    print(f"Filas detectadas en Excel: {len(df)}")
-
-    # 4. Mapeo de campos SEGUROS
-    # Hemos quitado 'SECTOR' para evitar el error de validación de HubSpot
-    mapeo = {
-        'CIF': 'cif',
-        'NOMBRE': 'name',
-        'EMPRESA': 'name'
-    }
+    print(f"Filas a procesar: {len(df)}")
 
     for _, fila in df.iterrows():
-        cif_valor = str(fila['CIF']).strip()
-        
-        # Saltamos filas vacías o nulas
-        if pd.isna(fila['CIF']) or cif_valor in ["", "nan", "None"]:
-            continue
+        # --- 1. GESTIÓN DE EMPRESA (Usando CIF) ---
+        cif = str(fila.get('CIF', '')).strip()
+        nombre_empresa = str(fila.get('Empresa', '')).strip()
+        pais = str(fila.get('Pais', '')).strip()
+        id_empresa = None
 
-        # Construimos el objeto de propiedades para HubSpot
-        propiedades = {}
-        for columna_excel, nombre_hubspot in mapeo.items():
-            if columna_excel in df.columns and pd.notna(fila[columna_excel]):
-                propiedades[nombre_hubspot] = str(fila[columna_excel])
-
-        # 5. Intentar UPSERT (Actualizar si existe por CIF, si no Crear)
-        url_patch = f"https://api.hubapi.com/crm/v3/objects/companies/{cif_valor}?idProperty=cif"
-        response = requests.patch(url_patch, headers=headers, json={"properties": propiedades})
-
-        if response.status_code == 200:
-            print(f"✅ ACTUALIZADO: {cif_valor}")
-        
-        elif response.status_code == 404:
-            # Si no existe el CIF, intentamos CREAR la empresa desde cero
-            url_post = "https://api.hubapi.com/crm/v3/objects/companies"
-            res_crear = requests.post(url_post, headers=headers, json={"properties": propiedades})
+        if cif and cif not in ['nan', 'None', '']:
+            props_emp = {'name': nombre_empresa, 'cif': cif, 'country': pais}
+            url_emp = f"https://api.hubapi.com/crm/v3/objects/companies/{cif}?idProperty=cif"
+            res_emp = requests.patch(url_emp, headers=headers, json={"properties": props_emp})
             
-            if res_crear.status_code == 201:
-                print(f"✅ CREADO: {cif_valor}")
-            else:
-                print(f"❌ ERROR AL CREAR {cif_valor}: {res_crear.status_code}")
-                print(f"Detalle: {res_crear.text}")
-        
+            if res_emp.status_code == 404:
+                res_emp = requests.post("https://api.hubapi.com/crm/v3/objects/companies", headers=headers, json={"properties": props_emp})
+            
+            if res_emp.status_code in [200, 201]:
+                id_empresa = res_emp.json().get('id')
+
+        # --- 2. GESTIÓN DE CONTACTO (Usando Correo) ---
+        email = str(fila.get('Correo', '')).strip()
+        id_contacto = None
+
+        if email and email not in ['nan', 'None', '']:
+            props_con = {
+                'email': email,
+                'firstname': str(fila.get('Nombre', '')),
+                'lastname': str(fila.get('Apellido', '')),
+                'moneda_contacto': str(fila.get('Moneda', ''))
+            }
+            url_con = f"https://api.hubapi.com/crm/v3/objects/contacts/{email}?idProperty=email"
+            res_con = requests.patch(url_con, headers=headers, json={"properties": props_con})
+            
+            if res_con.status_code == 404:
+                res_con = requests.post("https://api.hubapi.com/crm/v3/objects/contacts", headers=headers, json={"properties": props_con})
+            
+            if res_con.status_code in [200, 201]:
+                id_contacto = res_con.json().get('id')
+
+        # --- 3. ASOCIACIÓN (Unir Persona con Empresa) ---
+        if id_empresa and id_contacto:
+            url_assoc = f"https://api.hubapi.com/crm/v3/objects/contacts/{id_contacto}/associations/companies/{id_empresa}/contact_to_company"
+            requests.put(url_assoc, headers=headers)
+            print(f"✅ Sincronizado: {nombre_empresa} <-> {email}")
         else:
-            print(f"❌ ERROR inesperado con {cif_valor}: {response.status_code}")
-            print(f"Detalle: {response.text}")
+            print(f"⚠️ Faltan datos críticos para {nombre_empresa} o {email}")
 
 if __name__ == "__main__":
-    procesar_y_enviar()
+    sincronizar_todo()
