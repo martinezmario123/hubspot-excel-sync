@@ -1,0 +1,29 @@
+name: Sync Excel to HubSpot
+
+on:
+  push:
+    paths:
+      - 'datos.xlsx'  # Solo se activa si cambias este archivo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout de mi repositorio
+      uses: actions/checkout@v3
+
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Instalar librerías (requirements.txt)
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Ejecutar el script de sincronización
+      env:
+        HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
+      run: python sync.py
