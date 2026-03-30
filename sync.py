@@ -32,35 +32,31 @@ def procesar_y_enviar():
         print("❌ Error: No se encontró la columna 'CIF' en el Excel.")
         return
 
-    # 3. Lógica de recorte (CIF y derecha)
-    indice_cif = df.columns.get_loc('CIF')
-    df_recortado = df.iloc[:, indice_cif:]
-    print(f"Filas detectadas: {len(df_recortado)}")
+    # 3. Lógica de lectura
+    print(f"Filas detectadas en Excel: {len(df)}")
 
-    # 4. Mapeo de campos (Asegúrate de que 'cif' exista en HubSpot)
+    # 4. Mapeo de campos SEGUROS
+    # Hemos quitado 'SECTOR' para evitar el error de validación de HubSpot
     mapeo = {
         'CIF': 'cif',
         'NOMBRE': 'name',
-        'EMPRESA': 'name',
-        'SECTOR': 'industry'
+        'EMPRESA': 'name'
     }
 
-    for _, fila in df_recortado.iterrows():
+    for _, fila in df.iterrows():
         cif_valor = str(fila['CIF']).strip()
         
-        # Saltamos filas vacías
+        # Saltamos filas vacías o nulas
         if pd.isna(fila['CIF']) or cif_valor in ["", "nan", "None"]:
             continue
 
-        # Construimos el objeto de propiedades
+        # Construimos el objeto de propiedades para HubSpot
         propiedades = {}
-        for columna in df_recortado.columns:
-            nombre_excel = columna.upper()
-            if nombre_excel in mapeo and pd.notna(fila[columna]):
-                nombre_hubspot = mapeo[nombre_excel]
-                propiedades[nombre_hubspot] = str(fila[columna])
+        for columna_excel, nombre_hubspot in mapeo.items():
+            if columna_excel in df.columns and pd.notna(fila[columna_excel]):
+                propiedades[nombre_hubspot] = str(fila[columna_excel])
 
-        # 5. Intentar UPSERT (Actualizar o Crear)
+        # 5. Intentar UPSERT (Actualizar si existe por CIF, si no Crear)
         url_patch = f"https://api.hubapi.com/crm/v3/objects/companies/{cif_valor}?idProperty=cif"
         response = requests.patch(url_patch, headers=headers, json={"properties": propiedades})
 
@@ -68,19 +64,18 @@ def procesar_y_enviar():
             print(f"✅ ACTUALIZADO: {cif_valor}")
         
         elif response.status_code == 404:
-            # Si no existe, intentamos CREAR
+            # Si no existe el CIF, intentamos CREAR la empresa desde cero
             url_post = "https://api.hubapi.com/crm/v3/objects/companies"
             res_crear = requests.post(url_post, headers=headers, json={"properties": propiedades})
             
             if res_crear.status_code == 201:
                 print(f"✅ CREADO: {cif_valor}")
             else:
-                # AQUÍ VEREMOS EL ERROR REAL SI FALLA
                 print(f"❌ ERROR AL CREAR {cif_valor}: {res_crear.status_code}")
-                print(f"Detalle del error: {res_crear.text}")
+                print(f"Detalle: {res_crear.text}")
         
         else:
-            print(f"❌ ERRORinesperado con {cif_valor}: {response.status_code}")
+            print(f"❌ ERROR inesperado con {cif_valor}: {response.status_code}")
             print(f"Detalle: {response.text}")
 
 if __name__ == "__main__":
