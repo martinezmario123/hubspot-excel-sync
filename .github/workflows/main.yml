@@ -1,11 +1,11 @@
-name: Sincronizar HubSpot a Google Sheets CSV
+name: Sincronizar HubSpot desde CSV manual
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Permite darle al botón "Run" manualmente
+  workflow_dispatch:  # Para el botón manual
   schedule:
-    - cron: '0 * * * *' # Se ejecuta automáticamente cada hora
+    - cron: '0 * * * *' # Cada hora
 
 jobs:
   build:
@@ -22,22 +22,12 @@ jobs:
       - name: Instalar librerías
         run: pip install pandas openpyxl requests python-dotenv
 
-      - name: Paso 1 - Exportar Clientes a CSV
-        env:
-          HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
-          HS_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }} # Por si usas nombres distintos
-        run: python export_customers.py
-
+      # HEMOS QUITADO EL PASO 1 (EXPORTAR) PARA QUE NO BORRE TU EXCEL
+      
       - name: Paso 2 - Actualizar Proyectos desde CSV
         env:
           HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
           HS_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
         run: python update_projects.py
 
-      - name: Guardar cambios en GitHub
-        run: |
-          git config --global user.name 'HubSpot Bot'
-          git config --global user.email 'bot@hubspot.com'
-          git add clientes_hubspot.csv
-          git commit -m "Actualización automática y sincronización de proyectos" || echo "Sin cambios"
-          git push
+      # HEMOS QUITADO EL PASO DE GUARDAR EN GITHUB PARA QUE NO SOBREESCRIBA NADA
