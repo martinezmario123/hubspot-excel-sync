@@ -6,8 +6,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def actualizar_proyectos_desde_csv():
+    # Detectamos el token de las variables de entorno de GitHub
     token = os.getenv('HUBSPOT_ACCESS_TOKEN') or os.getenv('HS_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    headers = {
+        'Authorization': f'Bearer {token}', 
+        'Content-Type': 'application/json'
+    }
     
     archivo_datos = 'clientes_hubspot.csv'
     
@@ -18,50 +22,50 @@ def actualizar_proyectos_desde_csv():
     print(f"📊 Leyendo datos desde {archivo_datos}...")
     df = pd.read_csv(archivo_datos)
 
-    # --- ARREGLO PARA EL ERROR DE COLUMNA ---
-    # Buscamos qué columna contiene la palabra 'cif' (sin importar mayúsculas)
-    columnas_posibles = [c for c in df.columns if 'cif' in c.lower()]
-    
-    if not columnas_posibles:
-        print(f"❌ Error: No encuentro ninguna columna que se llame 'cif' en el CSV.")
-        print(f"Las columnas disponibles son: {list(df.columns)}")
+    # Buscamos la columna que contenga 'CIF' (ignora mayúsculas/minúsculas)
+    columnas_cif = [c for c in df.columns if 'cif' in c.lower()]
+    if not columnas_cif:
+        print(f"❌ No hay columna CIF en el CSV. Columnas: {list(df.columns)}")
         return
     
-    columna_cif_csv = columnas_posibles[0]
-    print(f"✅ Usando la columna '{columna_cif_csv}' como fuente de CIFs.")
-    
-    df[columna_cif_csv] = df[columna_cif_csv].astype(str).str.strip()
-    # ----------------------------------------
+    col_cif = columnas_cif[0]
+    df[col_cif] = df[col_cif].astype(str).str.strip()
+    print(f"✅ Usando columna '{col_cif}' del CSV.")
 
-    url_base = "https://api.hubapi.com/crm/v3/objects/0-970"
-    prop_cif_proy = "cif_proyecto" 
-    prop_nombre_proy = "nombre_empresa_proyecto"
+    # --- CAMBIO CLAVE: Usamos 'tickets' en lugar de '0-970' para evitar el Error 403 ---
+    url_base = "https://api.hubapi.com/crm/v3/objects/tickets"
     
-    params = {'properties': f'{prop_cif_proy},{prop_nombre_proy}', 'limit': 100}
+    # Propiedades que queremos leer de HubSpot
+    prop_cif_hs = "cif_proyecto" 
+    prop_nombre_hs = "nombre_empresa_proyecto"
     
-    print("🔎 Buscando proyectos en HubSpot...")
+    params = {'properties': f'{prop_cif_hs},{prop_nombre_hs}', 'limit': 100}
+    
+    print(f"🔎 Buscando proyectos (tickets) en HubSpot...")
     res = requests.get(url_base, headers=headers, params=params)
     
     if res.status_code != 200:
         print(f"❌ Error API HubSpot ({res.status_code}): {res.text}")
+        print("💡 CONSEJO: Asegúrate de que tu App Privada tenga el permiso 'crm.objects.tickets.read'")
         return
 
     proyectos = res.json().get('results', [])
-    print(f"📦 Analizando {len(proyectos)} proyectos...")
+    print(f"📦 Analizando {len(proyectos)} registros encontrados...")
 
     for proj in proyectos:
         id_hs = proj['id']
-        cif_en_proyecto = str(proj['properties'].get(prop_cif_proy, '')).strip()
+        cif_actual = str(proj['properties'].get(prop_cif_hs, '')).strip()
 
-        if cif_en_proyecto and cif_en_proyecto not in ['None', '']:
-            match = df[df[columna_cif_csv] == cif_en_proyecto]
+        if cif_actual and cif_actual not in ['None', '']:
+            # Buscar el CIF del ticket en nuestro CSV
+            match = df[df[col_cif] == cif_actual]
             
             if not match.empty:
                 info = match.iloc[0]
-                print(f"✨ ¡Match! CIF {cif_en_proyecto} -> Actualizando Proyecto {id_hs}")
+                print(f"✨ ¡Match! CIF {cif_actual} -> Actualizando ID {id_hs}...")
 
-                # Ajustamos los nombres de las columnas para que coincidan con el CSV
-                # Si fallan, el .get() pondrá '---' en lugar de romper el programa
+                # Mapeo de datos (CSV -> HubSpot)
+                # .get('columna', 'valor_por_defecto') evita que el código rompa
                 body = {
                     "properties": {
                         "nombre_empresa_proyecto": info.get('empresa_para_excel', info.get('nombre_empresa', '---')),
@@ -73,9 +77,11 @@ def actualizar_proyectos_desde_csv():
                 
                 res_patch = requests.patch(f"{url_base}/{id_hs}", headers=headers, json=body)
                 if res_patch.status_code == 200:
-                    print(f"   ✅ OK.")
+                    print(f"   ✅ Campos actualizados con éxito.")
                 else:
-                    print(f"   ⚠️ Error API: {res_patch.text}")
+                    print(f"   ⚠️ Error al actualizar: {res_patch.text}")
+            else:
+                print(f"   ℹ️ CIF {cif_actual} no encontrado en el archivo de datos.")
 
 if __name__ == "__main__":
     actualizar_proyectos_desde_csv()
