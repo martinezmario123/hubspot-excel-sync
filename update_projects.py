@@ -5,65 +5,68 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def actualizar_proyectos_desde_csv():
+def actualizar_sistema():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN') or os.getenv('HS_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    print("🔍 Listando todos los esquemas disponibles en esta cuenta...")
+    # 1. Intentamos localizar el objeto "Proyecto" mirando todos los esquemas
+    print("🔎 Buscando la ruta correcta de tus Proyectos...")
     res_schemas = requests.get("https://api.hubapi.com/crm/v3/schemas", headers=headers)
     
-    nombre_tecnico_encontrado = None
-    
+    target_object = None
     if res_schemas.status_code == 200:
-        esquemas = res_schemas.json().get('results', [])
-        print(f"📋 Se han encontrado {len(esquemas)} objetos.")
+        for s in res_schemas.json().get('results', []):
+            label = s.get('labels', {}).get('singular', '').lower()
+            if 'proyect' in label:
+                target_object = s['name']
+                print(f"✅ ¡Ruta encontrada!: {target_object}")
+                break
+    
+    # Si no lo encuentra por nombre, usamos el ID que vimos en tu URL de HubSpot
+    if not target_object:
+        target_object = "0-970"
+        print(f"⚠️ No se detectó por nombre, usando ID por defecto: {target_object}")
+
+    # 2. Cargar datos del Excel (CSV)
+    if not os.path.exists('clientes_hubspot.csv'):
+        print("❌ Error: No encuentro el archivo clientes_hubspot.csv")
+        return
         
-        for s in esquemas:
-            singular = s.get('labels', {}).get('singular', 'S/N')
-            plural = s.get('labels', {}).get('plural', 'S/N')
-            interno = s.get('name')
-            print(f"📌 Objeto: {singular} / {plural} -> Nombre interno: {interno}")
-            
-            # Si se llama Proyecto o algo parecido, lo guardamos
-            if 'proyect' in singular.lower() or 'proyect' in plural.lower():
-                nombre_tecnico_encontrado = interno
-    else:
-        print(f"❌ Error al consultar esquemas: {res_schemas.text}")
-        return
+    df = pd.read_csv('clientes_hubspot.csv')
+    col_cif_csv = [c for c in df.columns if 'cif' in c.lower()][0]
+    df[col_cif_csv] = df[col_cif_csv].astype(str).str.strip()
 
-    if not nombre_tecnico_encontrado:
-        print("❌ No se detectó ningún objeto con la palabra 'Proyecto'.")
-        print("💡 REVISA EL LOG ARRIBA: Mira la lista de 'Nombre interno' y dime cuál crees que es.")
-        return
-
-    print(f"🚀 ¡Objeto localizado! Usando: {nombre_tecnico_encontrado}")
-
-    # --- PARTE DE ACTUALIZACIÓN ---
-    archivo = 'clientes_hubspot.csv'
-    if not os.path.exists(archivo): return
-    df = pd.read_csv(archivo)
-    col_cif = [c for c in df.columns if 'cif' in c.lower()][0]
-    df[col_cif] = df[col_cif].astype(str).str.strip()
-
-    url_base = f"https://api.hubapi.com/crm/v3/objects/{nombre_tecnico_encontrado}"
+    # 3. Descargar proyectos actuales de HubSpot
+    url_base = f"https://api.hubapi.com/crm/v3/objects/{target_object}"
+    # Usamos los nombres internos que confirmamos: cif, ciudad, nombre_de_la_empresa
     params = {'properties': 'cif,ciudad,nombre_de_la_empresa', 'limit': 100}
+    
     res = requests.get(url_base, headers=headers, params=params)
+    
+    if res.status_code != 200:
+        print(f"❌ Error API ({res.status_code}): {res.text}")
+        return
 
-    if res.status_code == 200:
-        proyectos = res.json().get('results', [])
-        for proj in proyectos:
-            cif_hs = str(proj['properties'].get('cif', '')).strip()
-            match = df[df[col_cif] == cif_hs]
+    proyectos = res.json().get('results', [])
+    print(f"📦 Procesando {len(proyectos)} registros en HubSpot...")
+
+    for p in proyectos:
+        id_hs = p['id']
+        cif_hs = str(p['properties'].get('cif', '')).strip()
+
+        if cif_hs and cif_hs != 'None':
+            match = df[df[col_cif_csv] == cif_hs]
             if not match.empty:
                 info = match.iloc[0]
-                body = {"properties": {
-                    "nombre_de_la_empresa": info.get('nombre_empresa', info.get('empresa_para_excel', '---')),
-                    "ciudad": info.get('ciudad', '---')
-                }}
-                requests.patch(f"{url_base}/{proj['id']}", headers=headers, json=body)
-                print(f"✅ Proyecto {cif_hs} actualizado.")
-    else:
-        print(f"❌ Error al leer objetos: {res.text}")
+                print(f"✨ Match CIF {cif_hs} -> Actualizando...")
+                
+                payload = {
+                    "properties": {
+                        "nombre_de_la_empresa": info.get('nombre_empresa', info.get('empresa_para_excel', '---')),
+                        "ciudad": info.get('ciudad', '---')
+                    }
+                }
+                requests.patch(f"{url_base}/{id_hs}", headers=headers, json=payload)
 
 if __name__ == "__main__":
-    actualizar_proyectos_desde_csv()
+    actualizar_sistema()
