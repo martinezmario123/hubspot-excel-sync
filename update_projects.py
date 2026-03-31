@@ -10,46 +10,53 @@ def ejecutar_sincronizacion():
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     # 1. LEER EL CSV
-    if not os.path.exists('clientes_hubspot.csv'):
-        print("❌ No encuentro el archivo CSV")
-        return
     df = pd.read_csv('clientes_hubspot.csv')
+    
+    # Buscamos las columnas en el Excel (sin importar mayúsculas)
     col_cif_csv = [c for c in df.columns if 'cif' in c.lower()][0]
+    
+    # Intentamos encontrar la columna de Nombre y Ciudad en el Excel
+    def buscar_columna(lista_nombres, df):
+        for nombre in lista_nombres:
+            encontradas = [c for c in df.columns if nombre in c.lower()]
+            if encontradas: return encontradas[0]
+        return None
+
+    col_nombre_excel = buscar_columna(['empresa', 'nombre', 'client'], df)
+    col_ciudad_excel = buscar_columna(['ciudad', 'poblacion', 'city', 'town'], df)
+
+    # Limpiamos el CIF del Excel
     df[col_cif_csv] = df[col_cif_csv].astype(str).str.strip()
 
-    # 2. PROBAR RUTAS ESTÁNDAR QUE SUELEN SER "PROYECTOS"
-    # Probamos tickets primero porque es lo más probable para el ID 0-970
-    rutas = ["tickets", "deals"] 
+    # 2. SECCIÓN DE NEGOCIOS (DEALS)
+    url = "https://api.hubapi.com/crm/v3/objects/deals"
+    res = requests.get(url, headers=headers, params={'properties': 'cif', 'limit': 100})
     
-    for ruta in rutas:
-        print(f"🚀 Probando en la sección de: {ruta}...")
-        url = f"https://api.hubapi.com/crm/v3/objects/{ruta}"
-        
-        # Intentamos traer los registros
-        res = requests.get(url, headers=headers, params={'properties': 'cif,ciudad,nombre_de_la_empresa', 'limit': 100})
-        
-        if res.status_code == 200:
-            items = res.json().get('results', [])
-            if len(items) == 0:
-                print(f"ℹ️ Conectado a {ruta}, pero está vacío (0 registros).")
-                continue
+    if res.status_code == 200:
+        items = res.json().get('results', [])
+        for item in items:
+            cif_hs = str(item['properties'].get('cif', '')).strip()
+            match = df[df[col_cif_csv] == cif_hs]
             
-            print(f"✅ ¡Bingo! Encontrados {len(items)} registros en {ruta}. Sincronizando...")
-            for item in items:
-                cif_hs = str(item['properties'].get('cif', '')).strip()
-                match = df[df[col_cif_csv] == cif_hs]
+            if not match.empty:
+                info = match.iloc[0]
                 
-                if not match.empty:
-                    info = match.iloc[0]
-                    print(f"   ✨ Match CIF {cif_hs}. Actualizando...")
-                    payload = {"properties": {
-                        "nombre_de_la_empresa": info.get('nombre_empresa', '---'),
-                        "ciudad": info.get('ciudad', '---')
-                    }}
-                    requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-            return 
-        else:
-            print(f"❌ Error en {ruta}: {res.status_code}")
+                # Sacamos los datos del Excel
+                valor_nombre = info.get(col_nombre_excel, "Empresa Desconocida")
+                valor_ciudad = info.get(col_ciudad_excel, "---")
+                
+                print(f"✨ ¡Match! CIF {cif_hs} -> {valor_nombre} ({valor_ciudad})")
+
+                # ACTUALIZAMOS
+                payload = {
+                    "properties": {
+                        "dealname": valor_nombre, # Cambia el título del negocio
+                        "ciudad": valor_ciudad    # Rellena el campo ciudad que acabas de crear
+                    }
+                }
+                requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
+    else:
+        print(f"❌ Error API: {res.status_code}")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion()
