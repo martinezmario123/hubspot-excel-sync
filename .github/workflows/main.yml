@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Permite darle al botón "Run" manualmente
   schedule:
-    - cron: '0 * * * *' # Se ejecuta automáticamente cada hora (minuto 0)
+    - cron: '0 * * * *' # Se ejecuta automáticamente cada hora
 
 jobs:
   build:
@@ -20,18 +20,24 @@ jobs:
           python-version: '3.9'
 
       - name: Instalar librerías
-        run: pip install pandas openpyxl requests
+        run: pip install pandas openpyxl requests python-dotenv
 
-      - name: Ejecutar exportación a CSV
+      - name: Paso 1 - Exportar Clientes a CSV
         env:
           HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
+          HS_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }} # Por si usas nombres distintos
         run: python export_customers.py
+
+      - name: Paso 2 - Actualizar Proyectos desde CSV
+        env:
+          HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
+          HS_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
+        run: python update_projects.py
 
       - name: Guardar cambios en GitHub
         run: |
           git config --global user.name 'HubSpot Bot'
           git config --global user.email 'bot@hubspot.com'
-          # Añadimos el CSV y eliminamos el XLSX viejo si existiera para no liar
           git add clientes_hubspot.csv
-          git commit -m "Actualización automática CSV para Google Sheets" || echo "Sin cambios"
+          git commit -m "Actualización automática y sincronización de proyectos" || echo "Sin cambios"
           git push
