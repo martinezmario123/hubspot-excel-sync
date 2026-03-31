@@ -9,52 +9,47 @@ def ejecutar_sincronizacion():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN') or os.getenv('HS_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # --- PASO 1: IDENTIFICAR EL OBJETO SIN USAR IDs PROHIBIDOS ---
-    print("🔎 Buscando objetos accesibles...")
-    res_schemas = requests.get("https://api.hubapi.com/crm/v3/schemas", headers=headers)
-    
-    rutas_a_probar = []
-    if res_schemas.status_code == 200:
-        for s in res_schemas.json().get('results', []):
-            name = s['name']
-            label = s.get('labels', {}).get('singular', '').lower()
-            print(f"📌 Detectado objeto: {label} (Ruta: {name})")
-            if 'proyect' in label or 'proyect' in name.lower():
-                rutas_a_probar.append(name)
-    
-    # Si no detectamos nada, probamos con 'deals' que es lo más común
-    if not rutas_a_probar:
-        print("⚠️ No se detectaron objetos llamados 'Proyecto'. Probando con 'deals' (Negocios)...")
-        rutas_a_probar = ["deals"]
-
-    # --- PASO 2: INTENTAR ACTUALIZAR ---
-    if not os.path.exists('clientes_hubspot.csv'): return
+    # 1. LEER EL CSV
+    if not os.path.exists('clientes_hubspot.csv'):
+        print("❌ No encuentro el archivo CSV")
+        return
     df = pd.read_csv('clientes_hubspot.csv')
     col_cif_csv = [c for c in df.columns if 'cif' in c.lower()][0]
+    df[col_cif_csv] = df[col_cif_csv].astype(str).str.strip()
 
-    for ruta in rutas_a_probar:
-        print(f"🚀 Intentando sincronizar en la ruta: {ruta}...")
+    # 2. PROBAR RUTAS ESTÁNDAR QUE SUELEN SER "PROYECTOS"
+    # Probamos tickets primero porque es lo más probable para el ID 0-970
+    rutas = ["tickets", "deals"] 
+    
+    for ruta in rutas:
+        print(f"🚀 Probando en la sección de: {ruta}...")
         url = f"https://api.hubapi.com/crm/v3/objects/{ruta}"
-        # Intentamos leer (cif es el campo clave)
-        res = requests.get(url, headers=headers, params={'properties': 'cif,ciudad,nombre_de_la_empresa'})
+        
+        # Intentamos traer los registros
+        res = requests.get(url, headers=headers, params={'properties': 'cif,ciudad,nombre_de_la_empresa', 'limit': 100})
         
         if res.status_code == 200:
             items = res.json().get('results', [])
-            print(f"✅ ¡Conectado con éxito a {ruta}! Procesando {len(items)} registros...")
+            if len(items) == 0:
+                print(f"ℹ️ Conectado a {ruta}, pero está vacío (0 registros).")
+                continue
+            
+            print(f"✅ ¡Bingo! Encontrados {len(items)} registros en {ruta}. Sincronizando...")
             for item in items:
                 cif_hs = str(item['properties'].get('cif', '')).strip()
-                match = df[df[col_cif_csv].astype(str) == cif_hs]
+                match = df[df[col_cif_csv] == cif_hs]
+                
                 if not match.empty:
                     info = match.iloc[0]
+                    print(f"   ✨ Match CIF {cif_hs}. Actualizando...")
                     payload = {"properties": {
                         "nombre_de_la_empresa": info.get('nombre_empresa', '---'),
                         "ciudad": info.get('ciudad', '---')
                     }}
                     requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-                    print(f"   ✨ Actualizado CIF: {cif_hs}")
-            return # Si funciona una ruta, paramos
+            return 
         else:
-            print(f"❌ Ruta {ruta} rechazada (Error {res.status_code})")
+            print(f"❌ Error en {ruta}: {res.status_code}")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion()
