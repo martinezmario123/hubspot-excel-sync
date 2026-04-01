@@ -5,55 +5,58 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def sincronizacion_final_explicativa():
+def escaneo_y_sincronizacion_final():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    url = "https://api.hubapi.com/crm/v3/objects/deals"
-    params = {'associations': '0-970', 'properties': 'cif,dealname', 'limit': 100}
+    # Buscamos negocios pidiendo TODAS las asociaciones posibles de forma genérica
+    url_deals = "https://api.hubapi.com/crm/v3/objects/deals"
+    params = {'associations': 'p147977807_proyectos,0-970', 'properties': 'cif,dealname', 'limit': 100}
     
-    res = requests.get(url, headers=headers, params=params)
+    res = requests.get(url_deals, headers=headers, params=params)
+    
     if res.status_code == 200:
-        results = res.json().get('results', [])
-        print(f"🧐 Revisando {len(results)} negocios en HubSpot...")
-        
-        for deal in results:
+        negocios = res.json().get('results', [])
+        print(f"🧐 Analizando {len(negocios)} negocios...")
+
+        for deal in negocios:
             nombre = deal['properties'].get('dealname', 'Sin nombre')
             cif_hs = str(deal['properties'].get('cif', '')).strip()
             
-            # 1. Comprobar CIF
             match = df[df['CIF'] == cif_hs]
-            if match.empty:
-                print(f"❌ '{nombre}': El CIF '{cif_hs}' no está en tu Excel.")
-                continue
-
-            # 2. Comprobar Asociación
-            asoc_data = deal.get('associations', {})
-            p_asoc = None
-            for key in asoc_data.keys():
-                if "0-970" in key or "proyectos" in key.lower():
-                    p_asoc = asoc_data[key].get('results', [])
-
-            if not p_asoc:
-                print(f"⚠️ '{nombre}': CIF correcto, pero NO TIENE PROYECTO ENLAZADO en la derecha.")
-                continue
-
-            # 3. Actualizar
-            info = match.iloc[0]
-            for a in p_asoc:
-                proy_id = a['id']
-                print(f"✅ '{nombre}': ¡Enlace encontrado! Actualizando Proyecto {proy_id}...")
+            if not match.empty:
+                info = match.iloc[0]
                 
-                url_p = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
-                payload = {"properties": {"ciudad": str(info['Ciudad']), "direccion": str(info.get('Direccion', ''))}}
-                requests.patch(url_p, headers=headers, json=payload)
+                # BUSQUEDA AGRESIVA DE ASOCIACIONES
+                asoc_data = deal.get('associations', {})
+                proy_id = None
                 
-        print("\n🏁 ¡Listo! Revisa tu pantalla de Proyectos.")
+                # Miramos en todas las carpetas de asociaciones que nos devuelva HubSpot
+                for key, value in asoc_data.items():
+                    results = value.get('results', [])
+                    if results:
+                        proy_id = results[0]['id']
+                        print(f"🏗️ ¡ENCONTRADO! Enlace mediante '{key}' para {nombre}")
+                        break
+
+                if proy_id:
+                    print(f"🚀 Actualizando Proyecto {proy_id} con {info['Ciudad']}...")
+                    url_p = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+                    payload = {
+                        "properties": {
+                            "ciudad": str(info['Ciudad']),
+                            "direccion": str(info.get('Direccion', ''))
+                        }
+                    }
+                    r = requests.patch(url_p, headers=headers, json=payload)
+                    print(f"   📥 Resultado: {r.status_code}")
+                else:
+                    print(f"   ⚠️ '{nombre}' tiene el CIF OK, pero HubSpot no nos 'chiva' el ID del proyecto. Las claves que veo son: {list(asoc_data.keys())}")
     else:
-        print(f"❌ Error: {res.text}")
+        print(f"❌ Error API: {res.text}")
 
 if __name__ == "__main__":
-    sincronizacion_final_explicativa()
+    escaneo_y_sincronizacion_final()
