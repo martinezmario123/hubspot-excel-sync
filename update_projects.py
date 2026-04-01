@@ -4,22 +4,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def descubrir_nombre_objeto():
+def prueba_nombre_alternativo():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}'}
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    proy_id = "1174184826056" 
     
-    # Pedimos la lista de todos los esquemas de objetos personalizados
-    url = "https://api.hubapi.com/crm/v3/schemas"
+    # Probamos con 'p_proyectos' que es el nombre por defecto en muchas cuentas
+    # Si falla, probaremos con 'proyectos'
+    nombres_a_probar = ["p_proyectos", "proyectos", "project"]
     
-    print("🔍 Buscando el nombre técnico del objeto Proyectos...")
-    res = requests.get(url, headers=headers)
-    
-    if res.status_code == 200:
-        schemas = res.json().get('results', [])
-        for s in schemas:
-            print(f"📌 Encontrado: {s.get('labels', {}).get('singular')} -> Nombre técnico: '{s.get('name')}'")
-    else:
-        print(f"❌ Error: {res.text}")
+    for nombre in nombres_a_probar:
+        print(f"🧪 Probando con el nombre técnico: '{nombre}'...")
+        url = f"https://api.hubapi.com/crm/v3/objects/{nombre}/{proy_id}"
+        payload = {"properties": {"ciudad": "Alicante"}}
+        
+        res = requests.patch(url, headers=headers, json=payload)
+        
+        if res.status_code in [200, 204]:
+            print(f"✅ ¡BINGO! El nombre real era '{nombre}'.")
+            return
+        else:
+            print(f"❌ '{nombre}' no es el correcto (Error {res.status_code})")
 
 if __name__ == "__main__":
-    descubrir_nombre_objeto()
+    prueba_nombre_alternativo()
