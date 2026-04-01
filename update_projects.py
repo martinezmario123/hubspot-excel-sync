@@ -1,52 +1,52 @@
 import requests
-import os
 import pandas as pd
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def diagnostico_profundo():
+def sincronizacion_final():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}'}
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # 1. Ver qué hay en el Excel
     df = pd.read_csv('clientes_hubspot.csv')
-    print(f"📊 EXCEL: He leído {len(df)} filas. El primer CIF es: '{df['CIF'].iloc[0]}'")
+    df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 2. Ver qué negocios encuentra el robot
     url = "https://api.hubapi.com/crm/v3/objects/deals"
-    params = {'properties': 'cif,dealname,ciudad', 'limit': 10}
+    params = {'properties': 'cif,dealname,ciudad', 'limit': 100}
     
     res = requests.get(url, headers=headers, params=params)
-    
     if res.status_code == 200:
-        negocios = res.json().get('results', [])
-        print(f"📡 HUBSPOT: He encontrado {len(negocios)} negocios en total.")
-        
-        for n in negocios:
-            id_hs = n['id']
-            nombre = n['properties'].get('dealname')
-            cif_hs = n['properties'].get('cif')
+        for item in res.json().get('results', []):
+            cif_hs = str(item['properties'].get('cif', '')).strip()
+            match = df[df['CIF'] == cif_hs]
             
-            print(f"\n🔎 Analizando Negocio ID {id_hs}:")
-            print(f"   - Nombre en HS: '{nombre}'")
-            print(f"   - CIF en HS: '{cif_hs}'")
-            
-            if cif_hs:
-                match = df[df['CIF'].astype(str) == str(cif_hs)]
-                if not match.empty:
-                    print(f"   ✅ ¡HAY COINCIDENCIA! Debería actualizarse con {match.iloc[0]['Ciudad']}")
-                    
-                    # PROBAMOS ACTUALIZACIÓN REAL CON UN SOLO CAMBIO: EL NOMBRE
-                    test_payload = {"properties": {"dealname": nombre + " (OK)"}}
-                    test_res = requests.patch(f"{url}/{id_hs}", headers=headers, json=test_payload)
-                    print(f"   ⚡ Intento de cambio de nombre: {test_res.status_code}")
+            if not match.empty:
+                info = match.iloc[0]
+                # Limpiamos el dato para que no lleve espacios raros
+                ciudad_valor = str(info['Ciudad']).strip()
+                
+                print(f"🚀 Intentando enviar '{ciudad_valor}' a la propiedad 'ciudad' de {info['Empresa']}...")
+                
+                payload = {
+                    "properties": {
+                        "dealname": str(info['Empresa']),
+                        "ciudad": ciudad_valor
+                    }
+                }
+                
+                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
+                
+                # REVISIÓN DE RESULTADO
+                if upd.status_code == 200:
+                    datos_confirmados = upd.json().get('properties', {})
+                    print(f"   ✅ API dice OK. Valor actual en HubSpot: '{datos_confirmados.get('ciudad')}'")
                 else:
-                    print(f"   ❌ El CIF '{cif_hs}' no existe en tu Excel.")
-            else:
-                print(f"   ⚠️ Este negocio NO TIENE CIF puesto en HubSpot.")
+                    print(f"   ❌ ERROR API: {upd.text}")
+        
+        print("\n🏁 Proceso terminado.")
     else:
         print(f"❌ Error de conexión: {res.status_code}")
 
 if __name__ == "__main__":
-    diagnostico_profundo()
+    sincronizacion_final()
