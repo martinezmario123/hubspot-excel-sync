@@ -5,15 +5,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def sincronizacion_final_confirmada():
+def sincronizacion_con_chivato():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # 1. Leer el Excel
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 2. Obtener los Negocios
     url_deals = "https://api.hubapi.com/crm/v3/objects/deals"
     res_deals = requests.get(url_deals, headers=headers, params={'properties': 'cif,dealname'})
     
@@ -26,29 +24,35 @@ def sincronizacion_final_confirmada():
             match = df[df['CIF'] == cif_hs]
             if not match.empty:
                 info = match.iloc[0]
+                nueva_ciudad = str(info['Ciudad'])
                 
-                # 3. Buscar el Proyecto asociado a este Negocio específico
+                # Buscar el Proyecto
                 url_asoc = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}/associations/0-970"
                 res_asoc = requests.get(url_asoc, headers=headers)
                 
                 if res_asoc.status_code == 200:
-                    asociaciones = res_asoc.json().get('results', [])
-                    for asoc in asociaciones:
+                    for asoc in res_asoc.json().get('results', []):
                         proy_id = asoc['id']
-                        print(f"🚀 Actualizando Proyecto {proy_id} con datos de {info['Empresa']}...")
                         
-                        # 4. Inyectar datos en el Proyecto
-                        url_proy = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
-                        payload = {
-                            "properties": {
-                                "ciudad": str(info['Ciudad']),
-                                "direccion": str(info.get('Direccion', ''))
-                            }
-                        }
-                        requests.patch(url_proy, headers=headers, json=payload)
-        print("\n🏁 ¡Sincronización terminada! Revisa tus Proyectos.")
-    else:
-        print(f"❌ Error: {res_deals.status_code}")
+                        # --- EL CHIVATO ---
+                        # Antes de actualizar, preguntamos qué tiene el proyecto ahora mismo
+                        url_get = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}?properties=ciudad,direccion"
+                        get_proy = requests.get(url_get, headers=headers).json()
+                        ciudad_actual = get_proy.get('properties', {}).get('ciudad', 'VACÍO')
+                        
+                        print(f"🔎 PROYECTO {proy_id} ({nombre_n}):")
+                        print(f"   Valor actual en HubSpot: '{ciudad_actual}'")
+                        print(f"   Valor en el Excel: '{nueva_ciudad}'")
+                        
+                        # Intentar actualizar
+                        payload = {"properties": {"ciudad": nueva_ciudad}}
+                        r = requests.patch(f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}", headers=headers, json=payload)
+                        
+                        if r.status_code in [200, 204]:
+                            print(f"   ✅ ¡Actualizado con éxito a {nueva_ciudad}!")
+                        else:
+                            print(f"   ❌ Error al actualizar: {r.text}")
+        print("\n🏁 Revisión terminada.")
 
 if __name__ == "__main__":
-    sincronizacion_final_confirmada()
+    sincronizacion_con_chivato()
