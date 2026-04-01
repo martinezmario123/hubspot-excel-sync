@@ -1,41 +1,36 @@
 import requests
-import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def ejecutar_sincronizacion():
+def escaneo_total_objetos():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    headers = {'Authorization': f'Bearer {token}'}
     
-    # 1. Leer el CSV
-    df = pd.read_csv('clientes_hubspot.csv')
-    df['CIF'] = df['CIF'].astype(str).str.strip()
-
-    # 2. Intentar acceso a Proyectos (0-970)
-    url = "https://api.hubapi.com/crm/v3/objects/0-970"
-    params = {'properties': 'cif,name,ciudad,direccion,cp', 'limit': 100}
+    # 1. Probamos a listar todos los ESQUEMAS (la estructura de tu HubSpot)
+    url = "https://api.hubapi.com/crm/v3/schemas"
     
-    print(f"📡 Conectando con Proyectos usando Token nuevo...")
-    res = requests.get(url, headers=headers, params=params)
+    print("📡 Iniciando escaneo profundo de objetos...")
+    res = requests.get(url, headers=headers)
     
     if res.status_code == 200:
-        items = res.json().get('results', [])
-        print(f"✅ ¡CONECTADO! Encontrados {len(items)} proyectos.")
+        objetos = res.json().get('results', [])
+        print(f"✅ ¡Conexión establecida! He encontrado {len(objetos)} tipos de objetos.\n")
         
-        for item in items:
-            cif_hs = str(item['properties'].get('cif', '')).strip()
-            match = df[df['CIF'] == cif_hs]
+        for obj in objetos:
+            singular = obj['labels']['singular']
+            nombre_api = obj['name']
+            id_objeto = obj['objectTypeId']
             
-            if not match.empty:
-                info = match.iloc[0]
-                print(f"🏗️ Actualizando: {info['Empresa']} (CIF: {cif_hs})")
-                payload = {"properties": {"name": str(info['Empresa']), "ciudad": str(info['Ciudad'])}}
-                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-                print(f"   Resultado: {upd.status_code}")
+            print(f"📌 OBJETO: {singular}")
+            print(f"   - NOMBRE PARA EL CÓDIGO: {nombre_api}")
+            print(f"   - ID: {id_objeto}")
+            print("-" * 30)
+            
     else:
         print(f"❌ Error {res.status_code}: {res.text}")
+        print("\n💡 Si sale 403 aquí, es que falta el permiso 'crm.schemas.custom.read'.")
 
 if __name__ == "__main__":
-    ejecutar_sincronizacion()
+    escaneo_total_objetos()
