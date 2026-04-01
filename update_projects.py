@@ -5,48 +5,43 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def sincronizacion_final():
+def actualizar_proyectos_directo():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    url = "https://api.hubapi.com/crm/v3/objects/deals"
-    params = {'properties': 'cif,dealname,ciudad', 'limit': 100}
+    # Intentamos con el ID interno 0-970 (el de tu captura)
+    # Si falla, HubSpot confirma que bloquea el acceso API a este objeto
+    url = "https://api.hubapi.com/crm/v3/objects/0-970"
+    params = {'properties': 'cif,name,ciudad,direccion', 'limit': 100}
     
+    print(f"🚀 Intentando acceso directo a la pantalla de Proyectos...")
     res = requests.get(url, headers=headers, params=params)
+    
     if res.status_code == 200:
-        for item in res.json().get('results', []):
+        items = res.json().get('results', [])
+        for item in items:
             cif_hs = str(item['properties'].get('cif', '')).strip()
             match = df[df['CIF'] == cif_hs]
             
             if not match.empty:
                 info = match.iloc[0]
-                # Limpiamos el dato para que no lleve espacios raros
-                ciudad_valor = str(info['Ciudad']).strip()
-                
-                print(f"🚀 Intentando enviar '{ciudad_valor}' a la propiedad 'ciudad' de {info['Empresa']}...")
+                print(f"✅ Coincidencia encontrada para {info['Empresa']}. Actualizando...")
                 
                 payload = {
                     "properties": {
-                        "dealname": str(info['Empresa']),
-                        "ciudad": ciudad_valor
+                        "ciudad": str(info['Ciudad']),
+                        "direccion": str(info.get('Direccion', '')),
+                        "cp": str(info.get('CP', ''))
                     }
                 }
-                
                 upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-                
-                # REVISIÓN DE RESULTADO
-                if upd.status_code == 200:
-                    datos_confirmados = upd.json().get('properties', {})
-                    print(f"   ✅ API dice OK. Valor actual en HubSpot: '{datos_confirmados.get('ciudad')}'")
-                else:
-                    print(f"   ❌ ERROR API: {upd.text}")
-        
-        print("\n🏁 Proceso terminado.")
+                print(f"   Resultado: {upd.status_code}")
     else:
-        print(f"❌ Error de conexión: {res.status_code}")
+        print(f"❌ Error {res.status_code}: HubSpot no permite que las Apps Privadas editen 'Proyectos' directamente.")
+        print("👉 SOLUCIÓN: Usa el 'Plan Puente' (Sincronizar Negocios con Proyectos) dentro de HubSpot.")
 
 if __name__ == "__main__":
-    sincronizacion_final()
+    actualizar_proyectos_directo()
