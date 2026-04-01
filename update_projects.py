@@ -4,33 +4,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def inspeccion_tecnica_propiedad():
+def sincronizacion_directa_v3():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}'}
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # Consultamos la definición específica de la propiedad 'ciudad'
-    url = "https://api.hubapi.com/crm/v3/properties/0-970/ciudad"
+    # El ID de tu proyecto de Mercadona (lo sacamos de tus logs anteriores)
+    proy_id = "1174184826056" 
     
-    print("🔬 Analizando la propiedad 'ciudad' en HubSpot...")
-    res = requests.get(url, headers=headers)
+    print(f"⚡ Intentando inyectar 'ALICANTE' en Proyecto {proy_id}...")
     
-    if res.status_code == 200:
-        data = res.json()
-        tipo = data.get('fieldType')
-        opciones = data.get('options', [])
+    url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+    payload = {
+        "properties": {
+            "ciudad": "Alicante",
+            "direccion": "Nueva Direccion Mercadona"
+        }
+    }
+    
+    # Hacemos el envío
+    res = requests.patch(url, headers=headers, json=payload)
+    
+    if res.status_code in [200, 204]:
+        print("✅ ¡ÉXITO! HubSpot ha aceptado el cambio.")
         
-        print(f"\n📊 RESULTADOS:")
-        print(f"🔹 Tipo de campo: {tipo}")
-        
-        if opciones:
-            print(f"⚠️ ¡OJO! Es un desplegable. Las opciones permitidas son:")
-            for opt in opciones:
-                print(f"   - {opt['label']} (valor: {opt['value']})")
-        else:
-            print("✅ Es un campo de texto normal.")
-            
+        # Comprobamos si el dato se ha quedado guardado o si HubSpot lo borra
+        print("🔎 Comprobando valor real en el servidor...")
+        check = requests.get(f"{url}?properties=ciudad", headers=headers).json()
+        valor = check.get('properties', {}).get('ciudad', 'ERROR/VACÍO')
+        print(f"📊 Valor guardado en HubSpot: '{valor}'")
     else:
-        print(f"❌ Error al inspeccionar: {res.text}")
+        print(f"❌ Error crítico: {res.text}")
 
 if __name__ == "__main__":
-    inspeccion_tecnica_propiedad()
+    sincronizacion_directa_v3()
