@@ -3,54 +3,43 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 
-# Configuración inicial
 load_dotenv()
 TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
 OBJETO_PROYECTOS = "0-970"
 
 def ejecutar_sincronizacion_total():
-    # 1. Leer el Excel (CSV)
     if not os.path.exists('clientes_hubspot.csv'):
-        print("❌ Error: No se encuentra el archivo 'clientes_hubspot.csv'")
+        print("❌ No se encuentra 'clientes_hubspot.csv'")
         return
     
-    # Leemos el CSV y limpiamos nombres de columnas por si acaso
     df = pd.read_csv('clientes_hubspot.csv')
     df.columns = df.columns.str.strip()
     
-    # Limpieza correcta del CIF (usando .str antes de .upper())
-    df['CIF'] = df['CIF'].astype(str).str.strip().get(0).upper() if df['CIF'].dtype == object else df['CIF']
-    # Versión robusta para Pandas:
-    df['CIF'] = df['CIF'].astype(str).str.strip().str.upper()
+    # LIMPIEZA PROFUNDA: Quitamos espacios y aseguramos mayúsculas en ambos lados
+    df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
 
-    # 2. Traer los proyectos de HubSpot
-    propiedades_hs = ['cif', 'ciudad', 'direccion', 'cp']
     url = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
+    propiedades_hs = ['cif', 'ciudad', 'direccion', 'cp', 'name']
     
-    try:
-        res = requests.get(url, headers=HEADERS, params={'properties': ','.join(propiedades_hs)})
-        res.raise_for_status()
-    except Exception as e:
-        print(f"❌ Error al conectar con HubSpot: {e}")
-        return
+    res = requests.get(url, headers=HEADERS, params={'properties': ','.join(propiedades_hs)})
+    if res.status_code != 200: return
 
     proyectos_en_hubspot = res.json().get('results', [])
-    print(f"🔄 Analizando {len(proyectos_en_hubspot)} proyectos en HubSpot...")
+    print(f"🔄 Sincronizando {len(proyectos_en_hubspot)} proyectos...")
 
     for proy in proyectos_en_hubspot:
         proy_id = proy['id']
-        props_hs = proy['properties']
-        cif_hubspot = str(props_hs.get('cif', '')).strip().upper()
+        nombre_hs = proy['properties'].get('name', 'Sin nombre')
+        # Limpieza del CIF que viene de HubSpot
+        cif_hubspot = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
         
-        # 3. Buscar este proyecto en nuestro Excel
         fila_excel = df[df['CIF'] == cif_hubspot]
         
         if not fila_excel.empty:
             datos = fila_excel.iloc[0]
-            print(f"🎯 MATCH: Actualizando '{datos['Empresa']}' (ID: {proy_id})...")
+            print(f"🎯 MATCH: {nombre_hs} (CIF: {cif_hubspot})")
             
-            # 4. Mapeo de campos
             payload = {
                 "properties": {
                     "ciudad": str(datos['Ciudad']),
@@ -58,13 +47,11 @@ def ejecutar_sincronizacion_total():
                     "cp": str(datos['CP'])
                 }
             }
-            
-            # Enviamos la actualización
             requests.patch(f"{url}/{proy_id}", headers=HEADERS, json=payload)
-            print(f"✅ Ok: {datos['Ciudad']}, {datos['Direccion']}")
+            print(f"✅ Actualizado: {datos['Ciudad']}")
         else:
             if cif_hubspot and cif_hubspot != 'NONE':
-                print(f"ℹ️ El CIF '{cif_hubspot}' no está en el Excel.")
+                print(f"ℹ️ El CIF '{cif_hubspot}' no coincide con nadie en el Excel.")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion_total()
