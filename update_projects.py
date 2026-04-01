@@ -1,62 +1,42 @@
 import requests
-import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def ejecutar_sincronizacion():
+def diagnostico_proyectos():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN') or os.getenv('HS_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    headers = {'Authorization': f'Bearer {token}'}
     
-    # 1. Leer el Excel
-    df = pd.read_csv('clientes_hubspot.csv')
-    df['CIF'] = df['CIF'].astype(str).str.strip()
-
-    # 2. PROBAR CON EL NOMBRE INTERNO (p2_proyectos o similar)
-    # En muchos HubSpot, el objeto 0-970 se llama internamente "p_proyectos" o similar
-    # Vamos a intentar llamar a la lista general de esquemas para ver cómo se llama
+    print("🔍 INVESTIGANDO OBJETOS PERSONALIZADOS...")
     
-    url_esquema = "https://api.hubapi.com/crm/v3/schemas"
-    res_schema = requests.get(url_esquema, headers=headers)
+    # Intentamos leer el "Esquema" (la definición de tus objetos)
+    url_schemas = "https://api.hubapi.com/crm/v3/schemas"
+    res = requests.get(url_schemas, headers=headers)
     
-    if res_schema.status_code == 200:
-        schemas = res_schema.json().get('results', [])
-        nombre_tecnico = "0-970" # Por defecto
-        for s in schemas:
-            if s.get('objectTypeId') == "0-970":
-                nombre_tecnico = s.get('name')
-                print(f"🔍 Encontrado nombre técnico del objeto: {nombre_tecnico}")
-
-        # AHORA SI, PROBAMOS LA CONEXIÓN CON EL NOMBRE REAL
-        url = f"https://api.hubapi.com/crm/v3/objects/{nombre_tecnico}"
-        params = {'properties': 'cif,name,ciudad,direccion,cp', 'limit': 100}
-        res = requests.get(url, headers=headers, params=params)
+    if res.status_code == 200:
+        schemas = res.json().get('results', [])
+        print(f"✅ ¡Conexión exitosa! Tienes acceso a {len(schemas)} objetos personalizados.")
         
-        if res.status_code == 200:
-            items = res.json().get('results', [])
-            print(f"✅ Conectado con éxito a {nombre_tecnico}. Procesando...")
+        encontrado = False
+        for s in schemas:
+            label = s['labels']['singular']
+            obj_id = s['objectTypeId']
+            nombre_interno = s['name']
+            print(f"📌 OBJETO ENCONTRADO: '{label}' | ID: {obj_id} | Nombre Interno: {nombre_interno}")
             
-            for item in items:
-                cif_hs = str(item['properties'].get('cif', '')).strip()
-                match = df[df['CIF'] == cif_hs]
-                
-                if not match.empty:
-                    info = match.iloc[0]
-                    print(f"🏗️ Match: {info['Empresa']}")
-                    payload = {
-                        "properties": {
-                            "name": str(info['Empresa']),
-                            "ciudad": str(info['Ciudad']),
-                            "direccion": str(info.get('Direccion', '')),
-                            "cp": str(info.get('CP', ''))
-                        }
-                    }
-                    requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-        else:
-            print(f"❌ Error {res.status_code} al acceder a {nombre_tecnico}")
+            if obj_id == "0-970" or label.lower() == "proyecto":
+                encontrado = True
+                print(f"⭐ ¡AQUÍ ESTÁ! Para actualizar 'Proyectos' debemos usar el nombre: {nombre_interno}")
+        
+        if not encontrado:
+            print("⚠️ CUIDADO: El objeto 'Proyectos' (0-970) no aparece en la lista de permisos de este token.")
+            
+    elif res.status_code == 403:
+        print("❌ ERROR 403: El token sigue sin tener permiso para leer 'Schemas'.")
+        print("Revisa en HubSpot que el permiso 'crm.schemas.custom.read' esté marcado.")
     else:
-        print(f"❌ Error 403 persistente. El Token no tiene permisos de 'schemas'.")
+        print(f"❌ Error inesperado {res.status_code}: {res.text}")
 
 if __name__ == "__main__":
-    ejecutar_sincronizacion()
+    diagnostico_proyectos()
