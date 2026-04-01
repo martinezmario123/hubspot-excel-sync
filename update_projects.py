@@ -5,53 +5,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def buscar_y_actualizar():
+def sincronizar():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # 1. Leer el CSV
+    # 1. Leer Excel
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 2. Usar el Endpoint de BÚSQUEDA (Search)
-    # Este endpoint suele saltarse las restricciones de nombre técnico
-    url_search = "https://api.hubapi.com/crm/v3/objects/0-970/search"
+    # 2. Consultar Negocios (Donde ahora vive tu pipeline de Proyectos)
+    url = "https://api.hubapi.com/crm/v3/objects/deals"
+    params = {'properties': 'cif,dealname,ciudad,direccion,cp', 'limit': 100}
     
-    print("🔎 Intentando localizar proyectos vía API de Búsqueda...")
-
-    # Vamos a buscar TODOS los proyectos (máximo 100)
-    payload_search = {
-        "properties": ["cif", "name", "ciudad", "direccion", "cp"],
-        "limit": 100
-    }
-
-    res = requests.post(url_search, headers=headers, json=payload_search)
+    res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
         items = res.json().get('results', [])
-        print(f"✅ ¡ÉXITO! La búsqueda funcionó. Encontrados {len(items)} proyectos.")
-        
         for item in items:
-            props = item['properties']
-            cif_hs = str(props.get('cif', '')).strip()
-            
+            cif_hs = str(item['properties'].get('cif', '')).strip()
             match = df[df['CIF'] == cif_hs]
+            
             if not match.empty:
                 info = match.iloc[0]
-                print(f"🏗️ Match encontrado para CIF {cif_hs}. Actualizando...")
-
-                url_update = f"https://api.hubapi.com/crm/v3/objects/0-970/{item['id']}"
-                payload_upd = {
+                print(f"🏗️ Sincronizando: {info['Empresa']}")
+                payload = {
                     "properties": {
-                        "name": str(info['Empresa']),
-                        "ciudad": str(info['Ciudad'])
+                        "dealname": str(info['Empresa']),
+                        "ciudad": str(info['Ciudad']),
+                        "direccion": str(info.get('Direccion', '')),
+                        "cp": str(info.get('CP', ''))
                     }
                 }
-                upd = requests.patch(url_update, headers=headers, json=payload_upd)
-                print(f"   📥 Resultado actualización: {upd.status_code}")
+                requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
+        print("✅ Proceso finalizado.")
     else:
-        print(f"❌ La búsqueda también falló (Error {res.status_code})")
-        print(f"Mensaje: {res.text}")
+        print(f"❌ Error: {res.status_code}")
 
 if __name__ == "__main__":
-    buscar_y_actualizar()
+    sincronizar()
