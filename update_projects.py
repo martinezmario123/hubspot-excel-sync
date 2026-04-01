@@ -4,34 +4,30 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def prueba_escritura_v2():
+def prueba_campo_alternativo():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    
-    # ID de Mercadona
     proy_id = "1174184826056" 
     
-    print(f"🚀 Intentando actualizar Ciudad a 'Alicante' con el nuevo Token...")
-    
+    # Intentamos escribir en el campo DIRECCION
     url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
-    payload = {"properties": {"ciudad": "Alicante"}}
+    payload = {"properties": {"direccion": "CALLE PROBANDO 123"}}
     
-    # Enviamos el cambio
-    requests.patch(url, headers=headers, json=payload)
+    print(f"🚀 Intentando escribir en el campo DIRECCION...")
+    res = requests.patch(url, headers=headers, json=payload)
     
-    # Comprobamos el resultado inmediatamente
     import time
-    time.sleep(1) # Esperamos un segundo para que HubSpot asimile el cambio
+    time.sleep(2) 
     
-    check = requests.get(f"{url}?properties=ciudad", headers=headers).json()
-    valor_final = check.get('properties', {}).get('ciudad', 'VACÍO')
+    check = requests.get(f"{url}?properties=direccion", headers=headers).json()
+    valor = check.get('properties', {}).get('direccion', 'VACÍO')
     
-    print(f"\n📊 RESULTADO FINAL EN HUBSPOT: '{valor_final}'")
+    print(f"\n📊 RESULTADO EN DIRECCION: '{valor}'")
     
-    if valor_final == "Alicante":
-        print("✅ ¡CONSEGUIDO! El nuevo token funciona. Ya podemos sincronizar todo.")
+    if valor == "CALLE PROBANDO 123":
+        print("✅ ¡La dirección SÍ se guarda! El problema es solo el campo Ciudad.")
     else:
-        print("❌ Sigue saliendo VACÍO. El problema es una automatización interna de HubSpot.")
+        print("❌ Tampoco se guarda la dirección. El problema es de permisos generales.")
 
 if __name__ == "__main__":
-    prueba_escritura_v2()
+    prueba_campo_alternativo()
