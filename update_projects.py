@@ -1,38 +1,41 @@
 import requests
+import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+OBJETO_PROYECTOS = "0-970"
 
-def diagnostico_iberdrola():
-    # ID del proyecto de Iberdrola que el robot encontró antes
-    # (Lo buscamos por el CIF para estar seguros)
-    url = "https://api.hubapi.com/crm/v3/objects/0-970"
-    res = requests.get(url, headers=HEADERS, params={'properties': 'cif,ciudad,name'})
+def sincronizacion_final_limpia():
+    df = pd.read_csv('clientes_hubspot.csv')
+    df.columns = df.columns.str.strip()
+    df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
+
+    url = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
+    res = requests.get(url, headers=HEADERS, params={'properties': 'cif,name'})
     
+    if res.status_code != 200: return
+
     proyectos = res.json().get('results', [])
-    for p in proyectos:
-        if p['properties'].get('cif') == 'A48010615':
-            proy_id = p['id']
-            print(f"🔎 Analizando Iberdrola (ID: {proy_id})...")
-            
-            # 1. Intentamos escribir 'BILBAO_TEST'
-            requests.patch(f"{url}/{proy_id}", headers=HEADERS, json={"properties": {"ciudad": "BILBAO_TEST"}})
-            
-            # 2. Leemos inmediatamente qué hay guardado
-            import time
-            time.sleep(2)
-            revisar = requests.get(f"{url}/{proy_id}?properties=ciudad", headers=HEADERS).json()
-            valor_real = revisar.get('properties', {}).get('ciudad')
-            
-            print(f"📊 VALOR EN LA BASE DE DATOS: '{valor_real}'")
-            
-            if valor_real == "BILBAO_TEST":
-                print("✅ El dato SE GUARDA, pero no lo ves en tu pantalla. Estás mirando el campo equivocado.")
-            else:
-                print("❌ El dato SE BORRA solo. Tienes una automatización o sincronización que limpia el campo.")
+    print(f"🔄 Sincronizando datos reales desde el Excel...")
+
+    for proy in proyectos:
+        cif_hs = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
+        match = df[df['CIF'] == cif_hs]
+        
+        if not match.empty:
+            datos = match.iloc[0]
+            payload = {
+                "properties": {
+                    "ciudad": str(datos['Ciudad']),
+                    "direccion": str(datos['Direccion']),
+                    "cp": str(datos['CP'])
+                }
+            }
+            requests.patch(f"{url}/{proy['id']}", headers=HEADERS, json=payload)
+            print(f"✅ {datos['Empresa']} actualizado con Ciudad: {datos['Ciudad']}")
 
 if __name__ == "__main__":
-    diagnostico_iberdrola()
+    sincronizacion_final_limpia()
