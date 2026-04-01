@@ -1,66 +1,59 @@
 import requests
 import pandas as pd
 import os
+import time
 from dotenv import load_dotenv
 
-# Configuración inicial
 load_dotenv()
-TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
-HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
-OBJETO_PROYECTOS = "0-970"
 
-def ejecutar_sincronizacion_total():
-    # 1. Leer el Excel (CSV)
-    if not os.path.exists('clientes_hubspot.csv'):
-        print("❌ Error: No se encuentra el archivo 'clientes_hubspot.csv'")
-        return
+def sincronizacion_final_total():
+    token = os.getenv('HUBSPOT_ACCESS_TOKEN')
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
+    # 1. Leer el Excel
     df = pd.read_csv('clientes_hubspot.csv')
-    # Limpiamos los CIFs para que coincidan aunque tengan espacios o minúsculas
-    df['CIF'] = df['CIF'].astype(str).str.strip().upper()
+    df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 2. Traer los proyectos de HubSpot
-    # Aquí pedimos todas las propiedades que queremos sincronizar
-    propiedades_hs = ['cif', 'ciudad', 'direccion', 'cp', 'email_proyecto', 'gestor_proyecto']
-    url = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
+    # 2. Obtener todos los Negocios para cruzar por CIF
+    url_deals = "https://api.hubapi.com/crm/v3/objects/deals"
+    res_deals = requests.get(url_deals, headers=headers, params={'properties': 'cif,dealname'})
     
-    res = requests.get(url, headers=HEADERS, params={'properties': ','.join(propiedades_hs)})
-    
-    if res.status_code != 200:
-        print(f"❌ Error al conectar con HubSpot: {res.text}")
-        return
-
-    proyectos_en_hubspot = res.json().get('results', [])
-    print(f"🔄 Sincronizando {len(proyectos_en_hubspot)} proyectos...")
-
-    for proy in proyectos_en_hubspot:
-        proy_id = proy['id']
-        # Sacamos el CIF que tiene puesto el proyecto en HubSpot
-        cif_hubspot = str(proy['properties'].get('cif', '')).strip().upper()
-        
-        # 3. Buscar este proyecto en nuestro Excel
-        fila_excel = df[df['CIF'] == cif_hubspot]
-        
-        if not fila_excel.empty:
-            datos = fila_excel.iloc[0]
-            print(f"✅ Coincidencia: Actualizando {datos['Empresa']}...")
+    if res_deals.status_code == 200:
+        for deal in res_deals.json().get('results', []):
+            deal_id = deal['id']
+            cif_hs = str(deal['properties'].get('cif', '')).strip()
             
-            # 4. Mapeo de campos: Excel -> HubSpot
-            # (Aquí he puesto los nombres que suelen ser estándar)
-            payload = {
-                "properties": {
-                    "ciudad": str(datos['Ciudad']),
-                    "direccion": str(datos['Direccion']),
-                    "cp": str(datos['CP']),
-                    "email_proyecto": str(datos.get('Email Proyecto', '')),
-                    "gestor_proyecto": str(datos.get('Gestor Proyecto', ''))
-                }
-            }
-            
-            # Enviamos la actualización
-            requests.patch(f"{url}/{proy_id}", headers=HEADERS, json=payload)
-        else:
-            print(f"ℹ️ Saltando proyecto con CIF {cif_hubspot} (no está en el Excel)")
+            # Buscar coincidencia en el Excel
+            match = df[df['CIF'] == cif_hs]
+            if not match.empty:
+                info = match.iloc[0]
+                empresa = info['Empresa']
+                
+                # 3. Buscar Proyectos asociados a este Negocio (Objeto 0-970)
+                url_asoc = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}/associations/0-970"
+                res_asoc = requests.get(url_asoc, headers=headers).json()
+                
+                for asoc in res_asoc.get('results', []):
+                    proy_id = asoc['id']
+                    
+                    # 4. Actualizar Ciudad y Dirección
+                    url_upd = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+                    payload = {
+                        "properties": {
+                            "ciudad": str(info['Ciudad']),
+                            "direccion": str(info.get('Direccion', ''))
+                        }
+                    }
+                    
+                    r = requests.patch(url_upd, headers=headers, json=payload)
+                    if r.status_code in [200, 204]:
+                        print(f"✅ {empresa}: Actualizado con Ciudad '{info['Ciudad']}'")
+                    else:
+                        print(f"❌ Error en {empresa}: {r.text}")
+        
+        print("\n🏁 ¡PROCESO COMPLETADO! Ve a HubSpot y actualiza la página.")
+    else:
+        print(f"❌ Error de conexión inicial: {res_deals.status_code}")
 
 if __name__ == "__main__":
-    ejecutar_sincronizacion_total()
+    sincronizacion_final_total()
