@@ -1,39 +1,57 @@
 import requests
 import os
+import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def sincronizacion_directa_v3():
+def sincronizacion_total_agresiva():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # El ID de tu proyecto de Mercadona (lo sacamos de tus logs anteriores)
-    proy_id = "1174184826056" 
+    # Datos de prueba para Mercadona
+    proy_id = "1174184826056"
+    nueva_ciudad = "Alicante_Final"
+
+    # 1. Primero pedimos TODAS las propiedades que existen en ese proyecto
+    # para ver si hay otra 'ciudad' con nombre raro
+    url_get = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}?properties=ciudad,direccion,nombre_fiscal_de_la_empresa"
+    res_get = requests.get(url_get, headers=headers).json()
     
-    print(f"⚡ Intentando inyectar 'ALICANTE' en Proyecto {proy_id}...")
-    
-    url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+    print(f"📊 Antes de actualizar: {res_get.get('properties')}")
+
+    # 2. Intentamos actualizar usando nombres alternativos por si acaso
     payload = {
         "properties": {
-            "ciudad": "Alicante",
-            "direccion": "Nueva Direccion Mercadona"
+            "ciudad": nueva_ciudad,
+            "direccion": "Calle Nueva 123",
+            "nombre_fiscal_de_la_empresa": "Mercadona S.A."
         }
     }
     
-    # Hacemos el envío
-    res = requests.patch(url, headers=headers, json=payload)
+    print(f"🚀 Enviando datos a Proyecto {proy_id}...")
+    r = requests.patch(f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}", headers=headers, json=payload)
     
-    if res.status_code in [200, 204]:
-        print("✅ ¡ÉXITO! HubSpot ha aceptado el cambio.")
+    if r.status_code in [200, 204]:
+        # 3. VERIFICACIÓN CRÍTICA
+        # Esperamos 2 segundos para que HubSpot procese
+        import time
+        time.sleep(2)
         
-        # Comprobamos si el dato se ha quedado guardado o si HubSpot lo borra
-        print("🔎 Comprobando valor real en el servidor...")
-        check = requests.get(f"{url}?properties=ciudad", headers=headers).json()
-        valor = check.get('properties', {}).get('ciudad', 'ERROR/VACÍO')
-        print(f"📊 Valor guardado en HubSpot: '{valor}'")
+        check = requests.get(url_get, headers=headers).json()
+        final_props = check.get('properties', {})
+        
+        print("\n🏁 RESULTADO EN EL SERVIDOR:")
+        print(f"🔹 Ciudad: '{final_props.get('ciudad')}'")
+        print(f"🔹 Dirección: '{final_props.get('direccion')}'")
+        print(f"🔹 Nombre Fiscal: '{final_props.get('nombre_fiscal_de_la_empresa')}'")
+        
+        if final_props.get('ciudad') == nueva_ciudad:
+            print("\n✅ ¡SÍ! El dato se ha guardado correctamente. Si no lo ves, es el navegador.")
+        else:
+            print("\n❌ El servidor sigue borrando el dato. Hay un Workflow activo en tu HubSpot.")
     else:
-        print(f"❌ Error crítico: {res.text}")
+        print(f"❌ Error API: {r.text}")
 
 if __name__ == "__main__":
-    sincronizacion_directa_v3()
+    sincronizacion_total_agresiva()
