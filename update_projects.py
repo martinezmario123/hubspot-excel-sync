@@ -1,70 +1,38 @@
 import requests
-import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
-OBJETO_PROYECTOS = "0-970"
 
-def ejecutar_sincronizacion_total():
-    # 1. Cargar la "Base de Datos" (tu Excel)
-    if not os.path.exists('clientes_hubspot.csv'):
-        print("❌ Error: No se encuentra el archivo 'clientes_hubspot.csv'")
-        return
+def diagnostico_iberdrola():
+    # ID del proyecto de Iberdrola que el robot encontró antes
+    # (Lo buscamos por el CIF para estar seguros)
+    url = "https://api.hubapi.com/crm/v3/objects/0-970"
+    res = requests.get(url, headers=HEADERS, params={'properties': 'cif,ciudad,name'})
     
-    df = pd.read_csv('clientes_hubspot.csv')
-    df.columns = df.columns.str.strip()
-    
-    # Limpiamos el CIF del Excel (quitamos espacios y ponemos mayúsculas)
-    df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
-
-    # 2. Pedir a HubSpot todos los proyectos que tiene creados
-    # Traemos el CIF, Ciudad, Dirección y CP para comparar
-    url = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
-    params = {'properties': 'cif,ciudad,direccion,cp,name'}
-    
-    res = requests.get(url, headers=HEADERS, params=params)
-    if res.status_code != 200:
-        print(f"❌ Error de conexión: {res.text}")
-        return
-
-    proyectos_hubspot = res.json().get('results', [])
-    print(f"🔄 Escaneando {len(proyectos_hubspot)} proyectos en HubSpot...")
-
-    # 3. El Bucle de Match (Cruzar datos)
-    for proy in proyectos_hubspot:
-        proy_id = proy['id']
-        # Limpiamos el CIF que viene de HubSpot
-        cif_hs = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
-        
-        # Buscamos si este CIF de HubSpot existe en alguna fila del Excel
-        match = df[df['CIF'] == cif_hs]
-        
-        if not match.empty:
-            # Si hay MATCH, sacamos la info del Excel
-            datos_nuevos = match.iloc[0]
-            empresa = datos_nuevos['Empresa']
+    proyectos = res.json().get('results', [])
+    for p in proyectos:
+        if p['properties'].get('cif') == 'A48010615':
+            proy_id = p['id']
+            print(f"🔎 Analizando Iberdrola (ID: {proy_id})...")
             
-            print(f"🎯 Match encontrado: {empresa} (CIF: {cif_hs})")
+            # 1. Intentamos escribir 'BILBAO_TEST'
+            requests.patch(f"{url}/{proy_id}", headers=HEADERS, json={"properties": {"ciudad": "BILBAO_TEST"}})
             
-            # 4. Actualizar HubSpot con lo que diga el Excel
-            payload = {
-                "properties": {
-                    "ciudad": str(datos_nuevos['Ciudad']),
-                    "direccion": str(datos_nuevos['Direccion']),
-                    "cp": str(datos_nuevos['CP'])
-                }
-            }
+            # 2. Leemos inmediatamente qué hay guardado
+            import time
+            time.sleep(2)
+            revisar = requests.get(f"{url}/{proy_id}?properties=ciudad", headers=HEADERS).json()
+            valor_real = revisar.get('properties', {}).get('ciudad')
             
-            # Enviamos la actualización solo si hay cambios
-            requests.patch(f"{url}/{proy_id}", headers=HEADERS, json=payload)
-            print(f"✅ Campos actualizados para {empresa}.")
-        else:
-            # Si el CIF no está en el Excel, no hacemos nada
-            if cif_hs and cif_hs != 'NONE':
-                print(f"ℹ️ El CIF '{cif_hs}' no está en el Excel. Se ignora.")
+            print(f"📊 VALOR EN LA BASE DE DATOS: '{valor_real}'")
+            
+            if valor_real == "BILBAO_TEST":
+                print("✅ El dato SE GUARDA, pero no lo ves en tu pantalla. Estás mirando el campo equivocado.")
+            else:
+                print("❌ El dato SE BORRA solo. Tienes una automatización o sincronización que limpia el campo.")
 
 if __name__ == "__main__":
-    ejecutar_sincronizacion_total()
+    diagnostico_iberdrola()
