@@ -5,52 +5,52 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def sincronizacion_ninja():
+def sincronizacion_final_proyectos():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 1. Buscamos los Negocios (Deals) asociados
-    url_deals = "https://api.hubapi.com/crm/v3/objects/deals"
-    # Pedimos las asociaciones con el objeto 0-970 (Proyectos)
-    params = {'associations': '0-970', 'properties': 'cif', 'limit': 100}
+    # Buscamos negocios y sus asociaciones con Proyectos (0-970)
+    url = "https://api.hubapi.com/crm/v3/objects/deals"
+    params = {'associations': '0-970', 'properties': 'cif,dealname', 'limit': 100}
     
-    print("📡 Buscando conexiones entre Negocios y Proyectos...")
-    res = requests.get(url_deals, headers=headers, params=params)
-    
+    res = requests.get(url, headers=headers, params=params)
     if res.status_code == 200:
-        for deal in res.json().get('results', []):
+        results = res.json().get('results', [])
+        for deal in results:
             cif_hs = str(deal['properties'].get('cif', '')).strip()
             match = df[df['CIF'] == cif_hs]
             
             if not match.empty:
                 info = match.iloc[0]
-                # Miramos si este negocio tiene un Proyecto asociado
-                asociaciones = deal.get('associations', {}).get('p147977807_proyectos', {}).get('results', [])
-                # Nota: Si el nombre interno falla, probamos con '0-970'
-                if not asociaciones:
-                    asociaciones = deal.get('associations', {}).get('0-970', {}).get('results', [])
+                # Buscamos el ID del Proyecto asociado
+                asociaciones = deal.get('associations', {})
+                
+                # Intentamos encontrar la clave de asociación (puede variar el nombre)
+                p_asoc = None
+                for key in asociaciones.keys():
+                    if "0-970" in key or "proyectos" in key.lower():
+                        p_asoc = asociaciones[key].get('results', [])
 
-                for asoc in asociaciones:
-                    proyecto_id = asoc['id']
-                    print(f"🏗️ ¡Bingo! Proyecto {proyecto_id} encontrado para {info['Empresa']}. Actualizando...")
-                    
-                    url_proy = f"https://api.hubapi.com/crm/v3/objects/0-970/{proyecto_id}"
-                    payload = {
-                        "properties": {
-                            "ciudad": str(info['Ciudad']),
-                            "direccion": str(info.get('Direccion', '')),
-                            "cp": str(info.get('CP', ''))
+                if p_asoc:
+                    for a in p_asoc:
+                        proy_id = a['id']
+                        print(f"🚀 ¡Conexión hallada! Pasando datos de {info['Empresa']} al Proyecto {proy_id}")
+                        
+                        # Actualizamos la pantalla de Proyectos (0-970)
+                        url_p = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+                        payload = {
+                            "properties": {
+                                "ciudad": str(info['Ciudad']),
+                                "direccion": str(info.get('Direccion', ''))
+                            }
                         }
-                    }
-                    upd = requests.patch(url_proy, headers=headers, json=payload)
-                    print(f"   📥 Resultado en Proyecto: {upd.status_code}")
-        
-        print("🚀 Sincronización Ninja finalizada.")
+                        requests.patch(url_p, headers=headers, json=payload)
+        print("🏁 Proceso completado.")
     else:
-        print(f"❌ Error: {res.status_code}")
+        print(f"❌ Error: {res.text}")
 
 if __name__ == "__main__":
-    sincronizacion_ninja()
+    sincronizacion_final_proyectos()
