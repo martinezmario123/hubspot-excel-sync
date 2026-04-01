@@ -5,43 +5,52 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def actualizar_proyectos_directo():
+def sincronizacion_ninja():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # Intentamos con el ID interno 0-970 (el de tu captura)
-    # Si falla, HubSpot confirma que bloquea el acceso API a este objeto
-    url = "https://api.hubapi.com/crm/v3/objects/0-970"
-    params = {'properties': 'cif,name,ciudad,direccion', 'limit': 100}
+    # 1. Buscamos los Negocios (Deals) asociados
+    url_deals = "https://api.hubapi.com/crm/v3/objects/deals"
+    # Pedimos las asociaciones con el objeto 0-970 (Proyectos)
+    params = {'associations': '0-970', 'properties': 'cif', 'limit': 100}
     
-    print(f"🚀 Intentando acceso directo a la pantalla de Proyectos...")
-    res = requests.get(url, headers=headers, params=params)
+    print("📡 Buscando conexiones entre Negocios y Proyectos...")
+    res = requests.get(url_deals, headers=headers, params=params)
     
     if res.status_code == 200:
-        items = res.json().get('results', [])
-        for item in items:
-            cif_hs = str(item['properties'].get('cif', '')).strip()
+        for deal in res.json().get('results', []):
+            cif_hs = str(deal['properties'].get('cif', '')).strip()
             match = df[df['CIF'] == cif_hs]
             
             if not match.empty:
                 info = match.iloc[0]
-                print(f"✅ Coincidencia encontrada para {info['Empresa']}. Actualizando...")
-                
-                payload = {
-                    "properties": {
-                        "ciudad": str(info['Ciudad']),
-                        "direccion": str(info.get('Direccion', '')),
-                        "cp": str(info.get('CP', ''))
+                # Miramos si este negocio tiene un Proyecto asociado
+                asociaciones = deal.get('associations', {}).get('p147977807_proyectos', {}).get('results', [])
+                # Nota: Si el nombre interno falla, probamos con '0-970'
+                if not asociaciones:
+                    asociaciones = deal.get('associations', {}).get('0-970', {}).get('results', [])
+
+                for asoc in asociaciones:
+                    proyecto_id = asoc['id']
+                    print(f"🏗️ ¡Bingo! Proyecto {proyecto_id} encontrado para {info['Empresa']}. Actualizando...")
+                    
+                    url_proy = f"https://api.hubapi.com/crm/v3/objects/0-970/{proyecto_id}"
+                    payload = {
+                        "properties": {
+                            "ciudad": str(info['Ciudad']),
+                            "direccion": str(info.get('Direccion', '')),
+                            "cp": str(info.get('CP', ''))
+                        }
                     }
-                }
-                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-                print(f"   Resultado: {upd.status_code}")
+                    upd = requests.patch(url_proy, headers=headers, json=payload)
+                    print(f"   📥 Resultado en Proyecto: {upd.status_code}")
+        
+        print("🚀 Sincronización Ninja finalizada.")
     else:
-        print(f"❌ Error {res.status_code}: HubSpot no permite que las Apps Privadas editen 'Proyectos' directamente.")
-        print("👉 SOLUCIÓN: Usa el 'Plan Puente' (Sincronizar Negocios con Proyectos) dentro de HubSpot.")
+        print(f"❌ Error: {res.status_code}")
 
 if __name__ == "__main__":
-    actualizar_proyectos_directo()
+    sincronizacion_ninja()
