@@ -4,30 +4,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def prueba_campo_alternativo():
+def prueba_definitiva_permisos():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     proy_id = "1174184826056" 
     
-    # Intentamos escribir en el campo DIRECCION
     url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
-    payload = {"properties": {"direccion": "CALLE PROBANDO 123"}}
+    payload = {"properties": {"ciudad": "Alicante_Test", "direccion": "Calle_Test"}}
     
-    print(f"🚀 Intentando escribir en el campo DIRECCION...")
+    print("🔑 Probando llave maestra de escritura...")
     res = requests.patch(url, headers=headers, json=payload)
     
-    import time
-    time.sleep(2) 
-    
-    check = requests.get(f"{url}?properties=direccion", headers=headers).json()
-    valor = check.get('properties', {}).get('direccion', 'VACÍO')
-    
-    print(f"\n📊 RESULTADO EN DIRECCION: '{valor}'")
-    
-    if valor == "CALLE PROBANDO 123":
-        print("✅ ¡La dirección SÍ se guarda! El problema es solo el campo Ciudad.")
+    # Si el error es de permisos, aquí HubSpot nos dirá la verdad
+    if res.status_code != 204 and res.status_code != 200:
+        print(f"❌ ERROR DE PERMISOS: {res.text}")
     else:
-        print("❌ Tampoco se guarda la dirección. El problema es de permisos generales.")
+        import time
+        time.sleep(2)
+        check = requests.get(f"{url}?properties=ciudad,direccion", headers=headers).json()
+        print(f"📊 Resultado en Servidor: {check.get('properties')}")
 
 if __name__ == "__main__":
-    prueba_campo_alternativo()
+    prueba_definitiva_permisos()
