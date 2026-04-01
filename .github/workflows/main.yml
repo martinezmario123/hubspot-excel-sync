@@ -1,10 +1,10 @@
-name: Sincronización Automática HubSpot
+name: Sincronización cada 30 min HubSpot
 
 on:
   schedule:
-    # Esto lo ejecuta de lunes a viernes a las 09:00 AM (hora UTC)
-    - cron: '0 9 * * 1-5'
-  workflow_dispatch: # Esto te permite darle a un botón de "Play" manual en GitHub
+    # Este 'cron' le dice a GitHub: "Ejecuta cada 30 minutos"
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Esto te deja dar al botón de "Play" manual cuando quieras
 
 jobs:
   build:
@@ -24,5 +24,6 @@ jobs:
 
       - name: Ejecutar Sincronización
         env:
+          # IMPORTANTE: Asegúrate de tener este 'Secret' creado en GitHub
           HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
         run: python update_projects.py
