@@ -1,64 +1,33 @@
 import requests
-import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def ejecutar_sincronizacion():
+def autopsia_token():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    headers = {'Authorization': f'Bearer {token}'}
     
-    # 1. Leer el CSV
-    df = pd.read_csv('clientes_hubspot.csv')
-    df['CIF'] = df['CIF'].astype(str).str.strip()
-
-    # 2. Intentar con el nombre técnico que usa HubSpot para tu portal
-    # Estructura: p[ID_PORTAL]_proyectos
-    portal_id = "147977807"
-    nombre_tecnico = f"p{portal_id}_proyectos"
+    # 1. Preguntamos a HubSpot: "¿Quién soy y qué permisos tengo?"
+    url_access = "https://api.hubapi.com/oauth/v1/access-tokens/" + token
     
-    url = f"https://api.hubapi.com/crm/v3/objects/{nombre_tecnico}"
+    print("🕵️ Analizando Token en HubSpot...")
+    res = requests.get(url_access)
     
-    print(f"📡 Intentando conectar a la puerta: {nombre_tecnico}...")
-    
-    params = {'properties': 'cif,name,ciudad,direccion,cp', 'limit': 100}
-    res = requests.get(url, headers=headers, params=params)
-    
-    # Si falla por nombre técnico, intentamos por el ID 0-970 como última opción
-    if res.status_code != 200:
-        print(f"⚠️ Falló {nombre_tecnico}, probando con 0-970...")
-        url = "https://api.hubapi.com/crm/v3/objects/0-970"
-        res = requests.get(url, headers=headers, params=params)
-
     if res.status_code == 200:
-        items = res.json().get('results', [])
-        print(f"✅ ¡CONECTADO! Proyectos encontrados: {len(items)}")
+        info = res.json()
+        scopes = info.get('scopes', [])
+        print(f"✅ Token válido para el portal: {info.get('hub_id')}")
+        print("🔑 Permisos activos en este Token:")
+        for s in scopes:
+            print(f" - {s}")
         
-        for item in items:
-            props = item['properties']
-            cif_hs = str(props.get('cif', '')).strip()
-            
-            match = df[df['CIF'] == cif_hs]
-            if not match.empty:
-                info = match.iloc[0]
-                print(f"🏗️ Actualizando: {info['Empresa']} (ID: {item['id']})")
-
-                payload = {
-                    "properties": {
-                        "name": str(info['Empresa']),
-                        "ciudad": str(info['Ciudad']),
-                        "direccion": str(info.get('Direccion', '')),
-                        "cp": str(info.get('CP', ''))
-                    }
-                }
-                
-                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
-                print(f"   Resultado: {upd.status_code}")
+        # Verificamos si 'crm.objects.custom.read' está en la lista
+        if 'crm.objects.custom.read' not in scopes:
+            print("\n❌ ¡CUIDADO! El permiso 'crm.objects.custom.read' NO está en este token.")
+            print("👉 Esto significa que GitHub está usando un Token VIEJO. Tienes que actualizar el Secret.")
     else:
-        print(f"❌ Error final {res.status_code}: {res.text}")
-        print("👉 IMPORTANTE: Ve a HubSpot > Apps Privadas > Tu App > Scopes")
-        print("Asegúrate de que 'crm.schemas.custom.read' y 'crm.objects.custom.read' estén marcados.")
+        print(f"❌ Error al validar token: {res.status_code}")
 
 if __name__ == "__main__":
-    ejecutar_sincronizacion()
+    autopsia_token()
