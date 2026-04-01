@@ -1,17 +1,16 @@
-name: Sincronizar HubSpot desde CSV manual
+name: Sincronización Automática HubSpot
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:  # Para el botón manual
   schedule:
-    - cron: '0 * * * *' # Cada hora
+    # Esto lo ejecuta de lunes a viernes a las 09:00 AM (hora UTC)
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch: # Esto te permite darle a un botón de "Play" manual en GitHub
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Descargar repositorio
+      - name: Checkout del código
         uses: actions/checkout@v3
 
       - name: Configurar Python
@@ -19,15 +18,11 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Instalar librerías
-        run: pip install pandas openpyxl requests python-dotenv
+      - name: Instalar dependencias
+        run: |
+          pip install pandas requests python-dotenv
 
-      # HEMOS QUITADO EL PASO 1 (EXPORTAR) PARA QUE NO BORRE TU EXCEL
-      
-      - name: Paso 2 - Actualizar Proyectos desde CSV
+      - name: Ejecutar Sincronización
         env:
           HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
-          HS_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
         run: python update_projects.py
-
-      # HEMOS QUITADO EL PASO DE GUARDAR EN GITHUB PARA QUE NO SOBREESCRIBA NADA
