@@ -9,47 +9,50 @@ def ejecutar_sincronizacion():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN') or os.getenv('HS_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # 1. Leer CSV
+    # 1. Leer el Excel de GitHub
     df = pd.read_csv('clientes_hubspot.csv')
     df['CIF'] = df['CIF'].astype(str).str.strip()
 
-    # 2. Consultar Negocios - Pedimos explícitamente cif y ciudad
-    url = "https://api.hubapi.com/crm/v3/objects/deals"
-    res = requests.get(url, headers=headers, params={'properties': 'cif,ciudad,dealname'})
+    # 2. Configurar el objeto PROYECTOS (ID: 0-970)
+    objeto_proyectos = "0-970" 
+    url = f"https://api.hubapi.com/crm/v3/objects/{objeto_proyectos}"
+    
+    # Pedimos los proyectos (importante que el nombre interno del CIF sea 'cif')
+    params = {'properties': 'cif,name,ciudad,direccion,cp', 'limit': 100}
+    res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
         items = res.json().get('results', [])
+        print(f"🔎 Buscando en {len(items)} proyectos de HubSpot...")
+        
         for item in items:
             props = item['properties']
             cif_hs = str(props.get('cif', '')).strip()
             
-            # Buscar en el Excel
+            # Buscar coincidencia en el Excel
             match = df[df['CIF'] == cif_hs]
             
             if not match.empty:
                 info = match.iloc[0]
-                deal_id = item['id']
-                nueva_ciudad = str(info['Ciudad'])
-                nuevo_nombre = str(info['Empresa'])
-
-                print(f"🔄 Intentando actualizar Negocio ID: {deal_id}")
-                print(f"👉 Datos a enviar: Nombre='{nuevo_nombre}', Ciudad='{nueva_ciudad}'")
+                print(f"🏗️ ¡Match! Actualizando Proyecto: {info['Empresa']}")
 
                 payload = {
                     "properties": {
-                        "dealname": nuevo_nombre,
-                        "ciudad": nueva_ciudad
+                        # En objetos personalizados el nombre suele ser 'name'
+                        "name": str(info['Empresa']), 
+                        "ciudad": str(info['Ciudad']),
+                        "direccion": str(info.get('Direccion', '')),
+                        "cp": str(info.get('CP', ''))
                     }
                 }
                 
-                upd = requests.patch(f"{url}/{deal_id}", headers=headers, json=payload)
-                
+                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
                 if upd.status_code == 200:
-                    print(f"✅ RESPUESTA HUBSPOT: OK (200). Los datos ya deberían estar allí.")
+                    print(f"   ✅ Proyecto actualizado correctamente.")
                 else:
-                    print(f"❌ RESPUESTA HUBSPOT ERROR: {upd.status_code} - {upd.text}")
+                    print(f"   ⚠️ Error al guardar datos: {upd.text}")
     else:
-        print(f"❌ Error de conexión inicial: {res.status_code}")
+        print(f"❌ Error al conectar con Proyectos (0-970): {res.status_code}")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion()
