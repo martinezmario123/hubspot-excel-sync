@@ -1,33 +1,41 @@
 import requests
+import pandas as pd
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def autopsia_token():
+def ejecutar_sincronizacion():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}'}
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # 1. Preguntamos a HubSpot: "¿Quién soy y qué permisos tengo?"
-    url_access = "https://api.hubapi.com/oauth/v1/access-tokens/" + token
+    # 1. Leer el CSV
+    df = pd.read_csv('clientes_hubspot.csv')
+    df['CIF'] = df['CIF'].astype(str).str.strip()
+
+    # 2. Intentar acceso a Proyectos (0-970)
+    url = "https://api.hubapi.com/crm/v3/objects/0-970"
+    params = {'properties': 'cif,name,ciudad,direccion,cp', 'limit': 100}
     
-    print("🕵️ Analizando Token en HubSpot...")
-    res = requests.get(url_access)
+    print(f"📡 Conectando con Proyectos usando Token nuevo...")
+    res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
-        info = res.json()
-        scopes = info.get('scopes', [])
-        print(f"✅ Token válido para el portal: {info.get('hub_id')}")
-        print("🔑 Permisos activos en este Token:")
-        for s in scopes:
-            print(f" - {s}")
+        items = res.json().get('results', [])
+        print(f"✅ ¡CONECTADO! Encontrados {len(items)} proyectos.")
         
-        # Verificamos si 'crm.objects.custom.read' está en la lista
-        if 'crm.objects.custom.read' not in scopes:
-            print("\n❌ ¡CUIDADO! El permiso 'crm.objects.custom.read' NO está en este token.")
-            print("👉 Esto significa que GitHub está usando un Token VIEJO. Tienes que actualizar el Secret.")
+        for item in items:
+            cif_hs = str(item['properties'].get('cif', '')).strip()
+            match = df[df['CIF'] == cif_hs]
+            
+            if not match.empty:
+                info = match.iloc[0]
+                print(f"🏗️ Actualizando: {info['Empresa']} (CIF: {cif_hs})")
+                payload = {"properties": {"name": str(info['Empresa']), "ciudad": str(info['Ciudad'])}}
+                upd = requests.patch(f"{url}/{item['id']}", headers=headers, json=payload)
+                print(f"   Resultado: {upd.status_code}")
     else:
-        print(f"❌ Error al validar token: {res.status_code}")
+        print(f"❌ Error {res.status_code}: {res.text}")
 
 if __name__ == "__main__":
-    autopsia_token()
+    ejecutar_sincronizacion()
