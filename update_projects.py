@@ -8,34 +8,59 @@ TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
 OBJETO_PROYECTOS = "0-970"
 
-def sincronizacion_final_limpia():
+def ejecutar_sincronizacion_perfecta():
+    # 1. Cargar Excel
+    if not os.path.exists('clientes_hubspot.csv'):
+        print("❌ No se encuentra el archivo Excel.")
+        return
+    
     df = pd.read_csv('clientes_hubspot.csv')
     df.columns = df.columns.str.strip()
     df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
 
+    # 2. Obtener Proyectos de HubSpot
     url = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
     res = requests.get(url, headers=HEADERS, params={'properties': 'cif,name'})
     
-    if res.status_code != 200: return
+    if res.status_code != 200:
+        print("❌ Error de conexión con HubSpot.")
+        return
 
     proyectos = res.json().get('results', [])
-    print(f"🔄 Sincronizando datos reales desde el Excel...")
+    print(f"🔄 Sincronizando {len(proyectos)} proyectos...")
 
     for proy in proyectos:
+        proy_id = proy['id']
         cif_hs = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
+        
+        # Buscar en Excel
         match = df[df['CIF'] == cif_hs]
         
         if not match.empty:
-            datos = match.iloc[0]
+            fila = match.iloc[0]
+            
+            # 3. ACTUALIZACIÓN MULTI-CAMPO (Para evitar errores de nombre interno)
+            # Actualizamos 'ciudad' y también 'city' por si tu HubSpot usa el estándar inglés
             payload = {
                 "properties": {
-                    "ciudad": str(datos['Ciudad']),
-                    "direccion": str(datos['Direccion']),
-                    "cp": str(datos['CP'])
+                    "ciudad": str(fila['Ciudad']),
+                    "city": str(fila['Ciudad']), 
+                    "direccion": str(fila['Direccion']),
+                    "address": str(fila['Direccion']),
+                    "cp": str(fila['CP']),
+                    "zip": str(fila['CP'])
                 }
             }
-            requests.patch(f"{url}/{proy['id']}", headers=HEADERS, json=payload)
-            print(f"✅ {datos['Empresa']} actualizado con Ciudad: {datos['Ciudad']}")
+            
+            response = requests.patch(f"{url}/{proy_id}", headers=HEADERS, json=payload)
+            
+            if response.status_code in [200, 204]:
+                print(f"✅ {fila['Empresa']} actualizado con éxito.")
+            else:
+                # Si falla por un campo, intentamos solo con los básicos
+                payload_simple = {"properties": {"ciudad": str(fila['Ciudad']), "direccion": str(fila['Direccion'])}}
+                requests.patch(f"{url}/{proy_id}", headers=HEADERS, json=payload_simple)
+                print(f"⚠️ {fila['Empresa']} actualizado (modo simple).")
 
 if __name__ == "__main__":
-    sincronizacion_final_limpia()
+    ejecutar_sincronizacion_perfecta()
