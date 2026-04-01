@@ -4,30 +4,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def actualizar_negocio_madre():
+def mapeo_real_propiedades():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    headers = {'Authorization': f'Bearer {token}'}
+    proy_id = "1174184826056" 
     
-    # ID del NEGOCIO de Mercadona (el Deal, no el Proyecto)
-    deal_id = "1174184826056" 
+    # Esta URL nos devuelve TODAS las propiedades que tienen valor
+    url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}?propertiesWithHistory=true"
     
-    print(f"🎯 Intentando actualizar el NEGOCIO madre ({deal_id})...")
+    print("🔍 Escaneando nombres internos reales...")
+    res = requests.get(url, headers=headers)
     
-    url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
-    payload = {
-        "properties": {
-            "ciudad": "Alicante",
-            "direccion": "Calle de la Sincro 1"
-        }
-    }
-    
-    res = requests.patch(url, headers=headers, json=payload)
-    
-    if res.status_code in [200, 204]:
-        print("✅ ¡ÉXITO! El Negocio se ha actualizado.")
-        print("💡 Ahora ve a HubSpot y mira si el Proyecto de Mercadona ha cogido la ciudad 'Alicante' automáticamente.")
+    if res.status_code == 200:
+        properties = res.json().get('properties', {})
+        print("\n📋 LISTA DE PROPIEDADES ENCONTRADAS:")
+        print("-" * 50)
+        for nombre, valor in properties.items():
+            if valor:
+                print(f"🔹 Nombre Interno: {nombre} | Valor: {valor}")
+        print("-" * 50)
     else:
-        print(f"❌ Error al actualizar Negocio: {res.text}")
+        print(f"❌ Error al escanear: {res.text}")
 
 if __name__ == "__main__":
-    actualizar_negocio_madre()
+    mapeo_real_propiedades()
