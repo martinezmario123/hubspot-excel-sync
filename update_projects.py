@@ -4,30 +4,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def inspeccionar_nombres_reales():
+def escanear_nombres_internos():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
     headers = {'Authorization': f'Bearer {token}'}
     
-    # El ID del proyecto de Mercadona que sacamos antes
-    proy_id = "1174184826056" 
+    # Consultamos la definición del objeto 0-970
+    url = "https://api.hubapi.com/crm/v3/schemas/0-970"
     
-    # Pedimos TODAS las propiedades que tengan algún valor
-    url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
-    
+    print("🧬 Escaneando el ADN del objeto Proyectos...")
     res = requests.get(url, headers=headers)
     
     if res.status_code == 200:
-        props = res.json().get('properties', {})
-        print(f"\n🔍 LISTA DE PROPIEDADES REALES (PROYECTO {proy_id}):")
+        data = res.json()
+        properties = data.get('properties', [])
+        
+        print(f"\n📋 CAMPOS ENCONTRADOS EN 'PROYECTOS':")
         print("-" * 60)
-        for nombre_interno, valor in props.items():
-            # Buscamos la que tenga "Elche" o cualquier dato que reconozcas
-            if valor and valor != "null":
-                print(f"📌 Nombre Interno: {nombre_interno} | Valor Actual: {valor}")
+        for prop in properties:
+            label = prop.get('label')  # El nombre que tú ves
+            name = prop.get('name')    # EL NOMBRE QUE NECESITA EL ROBOT
+            
+            # Filtramos para no ver la basura del sistema
+            if not name.startswith('hs_'):
+                print(f"📍 Etiqueta: {label: <20} | NOMBRE INTERNO: {name}")
         print("-" * 60)
-        print("💡 Busca el que tenga valor 'Elche'. Ese nombre raro de la izquierda es el que pondremos en el código.")
+        print("\n💡 Busca el que ponga 'Ciudad'. El NOMBRE INTERNO será algo raro.")
     else:
-        print(f"❌ Error al leer: {res.text}")
+        print(f"❌ Error al escanear: {res.text}")
 
 if __name__ == "__main__":
-    inspeccionar_nombres_reales()
+    escanear_nombres_internos()
