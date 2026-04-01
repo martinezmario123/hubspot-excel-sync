@@ -4,18 +4,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def forzar_actualizacion_directa():
+def actualizar_negocio_madre():
     token = os.getenv('HUBSPOT_ACCESS_TOKEN')
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
-    # ID de Mercadona
-    proy_id = "1174184826056" 
+    # ID del NEGOCIO de Mercadona (el Deal, no el Proyecto)
+    deal_id = "1174184826056" 
     
-    # Intentamos escribir en Ciudad y un campo de Texto llamado 'name' (que siempre es editable)
-    url = f"https://api.hubapi.com/crm/v3/objects/0-970/{proy_id}"
+    print(f"🎯 Intentando actualizar el NEGOCIO madre ({deal_id})...")
+    
+    url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
     payload = {
         "properties": {
             "ciudad": "Alicante",
@@ -23,28 +21,13 @@ def forzar_actualizacion_directa():
         }
     }
     
-    print(f"📡 Enviando comando de escritura al Proyecto {proy_id}...")
-    
-    # Usamos PATCH para actualizar
     res = requests.patch(url, headers=headers, json=payload)
     
     if res.status_code in [200, 204]:
-        print("✅ Servidor de HubSpot: Petición aceptada.")
-        
-        # Pedimos el dato de vuelta inmediatamente
-        verificacion = requests.get(f"{url}?properties=ciudad,direccion", headers=headers).json()
-        props = verificacion.get('properties', {})
-        
-        print("\n📊 ESTADO REAL EN EL SERVIDOR:")
-        print(f"📍 Ciudad: '{props.get('ciudad')}'")
-        print(f"🏠 Dirección: '{props.get('direccion')}'")
-        
-        if props.get('ciudad') == "Alicante":
-            print("\n🎉 ¡CONSEGUIDO! El dato ya está en la base de datos.")
-        else:
-            print("\n⚠️ El servidor aceptó el cambio pero el campo sigue vacío. Esto ocurre si el campo 'Ciudad' está vinculado a otro objeto.")
+        print("✅ ¡ÉXITO! El Negocio se ha actualizado.")
+        print("💡 Ahora ve a HubSpot y mira si el Proyecto de Mercadona ha cogido la ciudad 'Alicante' automáticamente.")
     else:
-        print(f"❌ Error de API: {res.status_code} - {res.text}")
+        print(f"❌ Error al actualizar Negocio: {res.text}")
 
 if __name__ == "__main__":
-    forzar_actualizacion_directa()
+    actualizar_negocio_madre()
