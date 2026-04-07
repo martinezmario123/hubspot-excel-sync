@@ -12,22 +12,22 @@ TOKEN = os.getenv('HUBSPOT_ACCESS_TOKEN')
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
 OBJETO_PROYECTOS = "0-970"
 
-# URL de tu Apps Script (La que me pasaste antes)
+# URL de tu Apps Script (Para marcar como PROCESADO)
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbx9EZ0FbqF0JfQcPU5ShjHYQRqoGMAwfKTutKWiJaAVnEBl_RIo6xnlvDSwLHd_dQtVnA/exec"
 
 # URL de tu Google Drive (Publicado como CSV)
 URL_DRIVE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSib6KDzwI4xKJpg_HHJD_jI2Or8ACdnGPS1DTpKSCoc35piMCZJDeXxmvn7AAxiGcXtF9oX3yyWoEK/pub?output=csv"
 
 def marcar_como_procesado_en_google(cif):
-    """Función para avisar al Excel que el CIF ya se subió a HubSpot"""
+    """Envía la señal al Excel para cambiar el estado a PROCESADO"""
     payload = {
         "accion": "marcar_procesado",
         "cif": str(cif).strip()
     }
     try:
-        # allow_redirects=True es obligatorio para Google Apps Script
+        # allow_redirects=True es fundamental para que Google Scripts funcione
         response = requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), allow_redirects=True)
-        print(f"  ∟ 📝 Google Sheets dice: {response.text}")
+        print(f"  ∟ 📝 Google Sheets: {response.text}")
     except Exception as e:
         print(f"  ∟ ❌ Error avisando a Google Sheets: {e}")
 
@@ -43,36 +43,41 @@ def ejecutar_sincronizacion_perfecta():
 
         df = pd.read_csv(StringIO(response_drive.text))
         df.columns = df.columns.str.strip()
-        print("✅ Datos de Drive cargados.")
+        print(f"✅ Datos cargados: {len(df)} filas encontradas.")
         
     except Exception as e:
-        print(f"❌ Error durante la descarga: {e}")
+        print(f"❌ Error durante la descarga de Drive: {e}")
         return
 
-    # Limpieza de CIF para el cruce de datos
+    # Limpieza de CIF para evitar errores de formato
     df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
 
-    # 2. Obtener Proyectos de HubSpot
+    # 2. Obtener Proyectos actuales de HubSpot
     url_hs = f"https://api.hubapi.com/crm/v3/objects/{OBJETO_PROYECTOS}"
     res = requests.get(url_hs, headers=HEADERS, params={'properties': 'cif,name'})
     
     if res.status_code != 200:
-        print("❌ Error de conexión con HubSpot.")
+        print("❌ Error de conexión con HubSpot. Revisa el TOKEN.")
         return
 
     proyectos = res.json().get('results', [])
-    print(f"🔄 Sincronizando {len(proyectos)} proyectos...")
+    print(f"🔄 Sincronizando {len(proyectos)} proyectos desde HubSpot...")
 
     for proy in proyectos:
         proy_id = proy['id']
+        # Limpiamos el CIF de HubSpot
         cif_hs = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
         
-        # Buscar en los datos de Drive
+        if not cif_hs:
+            continue
+
+        # Buscamos este CIF en nuestro DataFrame de Drive
         match = df[df['CIF'] == cif_hs]
         
         if not match.empty:
             fila = match.iloc[0]
             
+            # Preparamos los datos para HubSpot
             payload = {
                 "properties": {
                     "ciudad": str(fila.get('Ciudad', '')),
@@ -82,13 +87,13 @@ def ejecutar_sincronizacion_perfecta():
                 }
             }
             
+            # Enviamos la actualización a HubSpot
             response = requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload)
             
             if response.status_code in [200, 204]:
-                nombre_empresa = fila.get('Empresa', 'Proyecto')
-                print(f"✅ {nombre_empresa} actualizado en HubSpot.")
+                print(f"✅ {fila.get('Empresa', 'Proyecto')} actualizado en HubSpot.")
                 
-                # --- AQUÍ LA MAGIA: Avisamos al Excel ---
+                # --- AQUÍ AVISAMOS A GOOGLE SHEETS ---
                 marcar_como_procesado_en_google(cif_hs)
             else:
                 print(f"⚠️ Error al actualizar el proyecto ID {proy_id} en HubSpot.")
