@@ -57,7 +57,7 @@ def ejecutar_sincronizacion_perfecta():
         if not match.empty:
             fila = match.iloc[0]
             
-            # 3. Preparar actualización con el nombre interno correcto: codigo_postal
+            # 3. Preparar actualización incluyendo el nombre del contacto
             payload = {
                 "properties": {
                     "ciudad": str(fila['Ciudad']),
@@ -66,25 +66,27 @@ def ejecutar_sincronizacion_perfecta():
                     "address": str(fila['Direccion']),
                     "cp": str(fila['CP']),
                     "zip": str(fila['CP']),
-                    "codigo_postal": str(fila['CP']) # <-- Ajustado aquí
+                    "codigo_postal": str(fila['CP']),
+                    "nombre_completo_contacto": str(fila['Contacto']) # <-- Nuevo campo añadido
                 }
             }
             
             response = requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload)
             
             if response.status_code in [200, 204]:
-                print(f"✅ {fila['Empresa']} actualizado con éxito (incluyendo CP).")
+                print(f"✅ {fila['Empresa']} actualizado con éxito (incluyendo Contacto).")
             else:
-                # Intento de rescate si fallan campos como 'city' o 'zip', usamos los nombres que sabemos que funcionan
+                # Modo simple de rescate
                 payload_simple = {
                     "properties": {
                         "ciudad": str(fila['Ciudad']), 
                         "direccion": str(fila['Direccion']),
-                        "codigo_postal": str(fila['CP']) # <-- También en el modo simple
+                        "codigo_postal": str(fila['CP']),
+                        "nombre_completo_contacto": str(fila['Contacto'])
                     }
                 }
                 requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload_simple)
-                print(f"⚠️ {fila['Empresa']} actualizado (modo simple con CP).")
+                print(f"⚠️ {fila['Empresa']} actualizado (modo simple).")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion_perfecta()
