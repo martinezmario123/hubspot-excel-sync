@@ -15,17 +15,16 @@ OBJETO_PROYECTOS = "0-970"
 URL_DRIVE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSib6KDzwI4xKJpg_HHJD_jI2Or8ACdnGPS1DTpKSCoc35piMCZJDeXxmvn7AAxiGcXtF9oX3yyWoEK/pub?output=csv"
 
 def ejecutar_sincronizacion_perfecta():
-    # 1. Cargar datos desde Google Drive en lugar de archivo local
+    # 1. Cargar datos desde Google Drive
     print("🌐 Conectando con Google Drive...")
     try:
         response_drive = requests.get(URL_DRIVE)
-        response_drive.encoding = 'utf-8' # Asegura que lea bien tildes y eñes
+        response_drive.encoding = 'utf-8'
         
         if response_drive.status_code != 200:
             print("❌ Error: No se pudo acceder al Excel en Drive.")
             return
 
-        # Convertimos el texto del CSV en un DataFrame de Pandas
         df = pd.read_csv(StringIO(response_drive.text))
         print("✅ Datos cargados correctamente desde la nube.")
         
@@ -33,7 +32,7 @@ def ejecutar_sincronizacion_perfecta():
         print(f"❌ Error durante la descarga: {e}")
         return
 
-    # Limpieza de datos (igual que antes)
+    # Limpieza de datos
     df.columns = df.columns.str.strip()
     df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
 
@@ -52,13 +51,13 @@ def ejecutar_sincronizacion_perfecta():
         proy_id = proy['id']
         cif_hs = str(proy['properties'].get('cif', '')).replace(" ", "").upper()
         
-        # Buscar en los datos que acabamos de bajar de Drive
+        # Buscar en los datos de Drive
         match = df[df['CIF'] == cif_hs]
         
         if not match.empty:
             fila = match.iloc[0]
             
-            # 3. Preparar actualización
+            # 3. Preparar actualización con el nombre interno correcto: codigo_postal
             payload = {
                 "properties": {
                     "ciudad": str(fila['Ciudad']),
@@ -66,19 +65,26 @@ def ejecutar_sincronizacion_perfecta():
                     "direccion": str(fila['Direccion']),
                     "address": str(fila['Direccion']),
                     "cp": str(fila['CP']),
-                    "zip": str(fila['CP'])
+                    "zip": str(fila['CP']),
+                    "codigo_postal": str(fila['CP']) # <-- Ajustado aquí
                 }
             }
             
             response = requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload)
             
             if response.status_code in [200, 204]:
-                print(f"✅ {fila['Empresa']} actualizado con éxito.")
+                print(f"✅ {fila['Empresa']} actualizado con éxito (incluyendo CP).")
             else:
-                # Intento de rescate si fallan campos específicos
-                payload_simple = {"properties": {"ciudad": str(fila['Ciudad']), "direccion": str(fila['Direccion'])}}
+                # Intento de rescate si fallan campos como 'city' o 'zip', usamos los nombres que sabemos que funcionan
+                payload_simple = {
+                    "properties": {
+                        "ciudad": str(fila['Ciudad']), 
+                        "direccion": str(fila['Direccion']),
+                        "codigo_postal": str(fila['CP']) # <-- También en el modo simple
+                    }
+                }
                 requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload_simple)
-                print(f"⚠️ {fila['Empresa']} actualizado (modo simple).")
+                print(f"⚠️ {fila['Empresa']} actualizado (modo simple con CP).")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion_perfecta()
