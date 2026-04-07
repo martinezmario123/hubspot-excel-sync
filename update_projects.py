@@ -15,7 +15,6 @@ OBJETO_PROYECTOS = "0-970"
 URL_DRIVE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSib6KDzwI4xKJpg_HHJD_jI2Or8ACdnGPS1DTpKSCoc35piMCZJDeXxmvn7AAxiGcXtF9oX3yyWoEK/pub?output=csv"
 
 def ejecutar_sincronizacion_perfecta():
-    # 1. Cargar datos desde Google Drive
     print("🌐 Conectando con Google Drive...")
     try:
         response_drive = requests.get(URL_DRIVE)
@@ -26,14 +25,15 @@ def ejecutar_sincronizacion_perfecta():
             return
 
         df = pd.read_csv(StringIO(response_drive.text))
-        print("✅ Datos cargados correctamente desde la nube.")
+        # Limpiamos los nombres de las columnas por si tienen espacios invisibles
+        df.columns = df.columns.str.strip()
+        print("✅ Datos cargados correctamente.")
         
     except Exception as e:
         print(f"❌ Error durante la descarga: {e}")
         return
 
-    # Limpieza de datos
-    df.columns = df.columns.str.strip()
+    # Limpieza de CIF para el cruce de datos
     df['CIF'] = df['CIF'].astype(str).str.replace(r'\s+', '', regex=True).str.upper()
 
     # 2. Obtener Proyectos de HubSpot
@@ -57,36 +57,23 @@ def ejecutar_sincronizacion_perfecta():
         if not match.empty:
             fila = match.iloc[0]
             
-            # 3. Preparar actualización incluyendo el nombre del contacto
+            # 3. Preparar actualización con los nombres de columna reales de tu Excel
+            # Usamos .get('NombreColumnaExcel', '') para evitar errores si falta la columna
             payload = {
                 "properties": {
-                    "ciudad": str(fila['Ciudad']),
-                    "city": str(fila['Ciudad']), 
-                    "direccion": str(fila['Direccion']),
-                    "address": str(fila['Direccion']),
-                    "cp": str(fila['CP']),
-                    "zip": str(fila['CP']),
-                    "codigo_postal": str(fila['CP']),
-                    "nombre_completo_contacto": str(fila['Contacto']) # <-- Nuevo campo añadido
+                    "ciudad": str(fila.get('Ciudad', '')),
+                    "direccion": str(fila.get('Direccion', '')),
+                    "codigo_postal": str(fila.get('CP', '')),
+                    "nombre_completo_contacto": str(fila.get('Contacto Principal', '')) # <-- Ajustado aquí
                 }
             }
             
             response = requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload)
             
             if response.status_code in [200, 204]:
-                print(f"✅ {fila['Empresa']} actualizado con éxito (incluyendo Contacto).")
+                print(f"✅ {fila.get('Empresa', 'Proyecto')} actualizado con éxito.")
             else:
-                # Modo simple de rescate
-                payload_simple = {
-                    "properties": {
-                        "ciudad": str(fila['Ciudad']), 
-                        "direccion": str(fila['Direccion']),
-                        "codigo_postal": str(fila['CP']),
-                        "nombre_completo_contacto": str(fila['Contacto'])
-                    }
-                }
-                requests.patch(f"{url_hs}/{proy_id}", headers=HEADERS, json=payload_simple)
-                print(f"⚠️ {fila['Empresa']} actualizado (modo simple).")
+                print(f"⚠️ Error al actualizar el proyecto ID {proy_id}")
 
 if __name__ == "__main__":
     ejecutar_sincronizacion_perfecta()
